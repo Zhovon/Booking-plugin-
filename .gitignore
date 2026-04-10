@@ -1,0 +1,27 @@
+# Dev & temp files
+*.log
+*.tmp
+*.bak
+verify.php
+cleanup.php
+audit_and_strip.php
+deep_clean.php
+fix_js_comments.php
+final_check.php
+strip_comments.php
+final_audit.php
+
+# Requirements docs (not part of the plugin)
+*.pdf
+pdf_content.txt
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
