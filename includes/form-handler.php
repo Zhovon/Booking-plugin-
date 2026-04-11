@@ -9,14 +9,14 @@ function zb_handle_booking() {
         return;
     }
 
-    if ( ! isset( $_POST['zb_booking_nonce'] ) ||
-         ! wp_verify_nonce( $_POST['zb_booking_nonce'], 'zb_booking_submit' ) ) {
-        wp_die( 'Sikkerhedstjek mislykkedes. Gå tilbage og prøv igen.', 'Fejl', [ 'back_link' => true ] );
-    }
-
     if ( ! is_user_logged_in() ) {
         wp_safe_redirect( site_url( '/login?redirect_to=' . rawurlencode( wp_get_referer() ?: '/' ) ) );
         exit;
+    }
+
+    if ( ! isset( $_POST['zb_booking_nonce'] ) ||
+         ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['zb_booking_nonce'] ) ), 'zb_booking_submit' ) ) {
+        wp_die( 'Sikkerhedstjek mislykkedes. Gå tilbage og prøv igen.', 'Fejl', [ 'back_link' => true ] );
     }
 
     $required = [
@@ -47,6 +47,16 @@ function zb_handle_booking() {
     $services       = sanitize_text_field( $_POST['services'] );
     $booking_date   = sanitize_text_field( $_POST['booking_date'] );
     $booking_time   = sanitize_text_field( $_POST['booking_time'] );
+
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $booking_date ) ||
+         ! strtotime( $booking_date ) ||
+         strtotime( $booking_date ) <= current_time( 'timestamp' ) ) {
+        wp_die( 'Ugyldig dato. Vælg en fremtidig dato.', 'Fejl', [ 'back_link' => true ] );
+    }
+    if ( ! preg_match( '/^\d{2}:\d{2}$/', $booking_time ) ) {
+        wp_die( 'Ugyldigt tidspunkt.', 'Fejl', [ 'back_link' => true ] );
+    }
+
     $raw_price      = floatval( $_POST['price'] ?? 0 );
     $coupon_code    = sanitize_text_field( $_POST['active_coupon_code'] ?? '' );
     $coupon_price   = floatval( $_POST['coupon_price'] ?? 0 );

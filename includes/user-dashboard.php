@@ -98,19 +98,6 @@ function zb_render_admin_bookings_table() {
     $table    = $wpdb->prefix . 'zb_bookings';
     $currency = class_exists( 'WooCommerce' ) ? get_woocommerce_currency_symbol() : 'kr';
 
-    wp_enqueue_script( 'jquery' );
-    wp_enqueue_script(
-        'zb-admin-js',
-        ZB_URL . 'assets/zb-admin.js',
-        [ 'jquery' ],
-        ZB_VERSION,
-        true
-    );
-    wp_localize_script( 'zb-admin-js', 'zb_ajax', [
-        'ajax_url' => admin_url( 'admin-ajax.php' ),
-        'nonce'    => wp_create_nonce( 'zb_update_status_nonce' ),
-    ] );
-
     if ( isset( $_GET['zb_notice'] ) ) {
         $notices = [
             'confirmed'   => 'Booking bekræftet og kundemail sendt.',
@@ -123,7 +110,7 @@ function zb_render_admin_bookings_table() {
         }
     }
 
-    $bookings = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY created_at DESC" );
+    $bookings = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY created_at DESC LIMIT 500" );
     ?>
     <div class="wrap">
     <h1 class="wp-heading-inline">Zbooking – Alle bookinger</h1>
