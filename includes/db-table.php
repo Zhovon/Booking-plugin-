@@ -62,18 +62,39 @@ function zb_migrate_osf_data() {
     if ( $wpdb->get_var( "SHOW TABLES LIKE '$old_addons'" ) === $old_addons ) {
         $count = $wpdb->get_var( "SELECT COUNT(*) FROM $new_addons" );
         if ( (int) $count === 0 ) {
-            $wpdb->query( "INSERT INTO $new_addons (id, title, description, time, price, created_at) SELECT id, title, description, time, price, created_at FROM $old_addons" );
+            $data = $wpdb->get_results( "SELECT * FROM $old_addons", ARRAY_A );
+            foreach ( $data as $row ) {
+                unset( $row['id'] );
+                $wpdb->insert( $new_addons, $row );
+            }
         }
     }
 
     if ( $wpdb->get_var( "SHOW TABLES LIKE '$old_bookings'" ) === $old_bookings ) {
         $count = $wpdb->get_var( "SELECT COUNT(*) FROM $new_bookings" );
         if ( (int) $count === 0 ) {
-            $cols = $wpdb->get_col( "DESCRIBE $old_bookings", 0 );
-            if ( in_array( 'osf_company', $cols, true ) ) {
-                $wpdb->query( "INSERT INTO $new_bookings (id, user_id, company_name, contact_person, booked_by, email, phone, price, coupon_price, coupon, address, seller_contact, services, comments, booking_date, booking_time, status, created_at) SELECT id, user_id, osf_company, osf_contact, booked_by, email, phone, price, coupon_price, coupon, address, seller_contact, services, comments, booking_date, booking_time, status, created_at FROM $old_bookings" );
-            } else {
-                $wpdb->query( "INSERT INTO $new_bookings SELECT * FROM $old_bookings" );
+            $data = $wpdb->get_results( "SELECT * FROM $old_bookings", ARRAY_A );
+            foreach ( $data as $row ) {
+                $mapped = [
+                    'user_id'        => absint( $row['user_id'] ?? 0 ),
+                    'company_name'   => sanitize_text_field( $row['osf_company'] ?? $row['company_name'] ?? '' ),
+                    'contact_person' => sanitize_text_field( $row['osf_contact'] ?? $row['contact_person'] ?? '' ),
+                    'booked_by'      => sanitize_text_field( $row['booked_by'] ?? '' ),
+                    'email'          => sanitize_email( $row['email'] ?? '' ),
+                    'phone'          => sanitize_text_field( $row['phone'] ?? '' ),
+                    'price'          => sanitize_text_field( $row['price'] ?? '' ),
+                    'coupon_price'   => sanitize_text_field( $row['coupon_price'] ?? '' ),
+                    'coupon'         => sanitize_text_field( $row['coupon'] ?? '' ),
+                    'address'        => sanitize_textarea_field( $row['address'] ?? '' ),
+                    'seller_contact' => sanitize_textarea_field( $row['seller_contact'] ?? '' ),
+                    'services'       => sanitize_textarea_field( $row['services'] ?? '' ),
+                    'comments'       => sanitize_textarea_field( $row['comments'] ?? '' ),
+                    'booking_date'   => sanitize_text_field( $row['booking_date'] ?? '' ),
+                    'booking_time'   => sanitize_text_field( $row['booking_time'] ?? '' ),
+                    'status'         => sanitize_text_field( $row['status'] ?? 'pending' ),
+                    'created_at'     => sanitize_text_field( $row['created_at'] ?? current_time('mysql') ),
+                ];
+                $wpdb->insert( $new_bookings, $mapped );
             }
         }
     }
