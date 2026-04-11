@@ -49,7 +49,7 @@ function zb_handle_reschedule_request() {
     $body    .= "\nManage bookings: " . admin_url( 'admin.php?page=zb-show-bookings' );
 
     wp_mail( get_option( 'admin_email' ), $subject, $body );
-    wp_safe_redirect( add_query_arg( 'zb_msg', 'reschedule_sent', wp_get_referer() ) );
+    wp_safe_redirect( add_query_arg( 'zb_msg', 'reschedule_sent', site_url( '/my-account-2/' ) ) );
     exit;
 }
 

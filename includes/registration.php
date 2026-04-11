@@ -32,7 +32,8 @@ function zb_handle_dashboard_updates() {
                 update_user_meta( $user_id, 'zb_avatar_id', $attach_id );
             }
         }
-        wp_safe_redirect( add_query_arg( [ 'zb_tab' => 'profile', 'zb_msg' => 'profile_updated' ], wp_get_referer() ) );
+        $dashboard_url = site_url( '/my-account-2/' );
+        wp_safe_redirect( add_query_arg( [ 'zb_tab' => 'profile', 'zb_msg' => 'profile_updated' ], $dashboard_url ) );
         exit;
     }
 
@@ -43,7 +44,8 @@ function zb_handle_dashboard_updates() {
         }
         wp_set_password( $_POST['new_password'], $user_id );
         wp_set_auth_cookie( $user_id );
-        wp_safe_redirect( add_query_arg( [ 'zb_tab' => 'security', 'zb_msg' => 'pwd_updated' ], wp_get_referer() ) );
+        $dashboard_url = site_url( '/my-account-2/' );
+        wp_safe_redirect( add_query_arg( [ 'zb_tab' => 'security', 'zb_msg' => 'pwd_updated' ], $dashboard_url ) );
         exit;
     }
 }

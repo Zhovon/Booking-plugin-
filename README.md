@@ -1,6 +1,6 @@
 # Zbooking — WordPress Booking Plugin
 
-**Version:** 2.4  
+**Version:** 3.0  
 **Author:** zhovon  
 **Plugin URI:** https://zhovon.com  
 **Requires:** WordPress 5.8+, PHP 7.4+, WooCommerce 6.0+
@@ -40,12 +40,15 @@ Zbooking is a custom booking management system built for **homefoto.dk** — a p
 
 ## Pages to Create
 
-| Page Title         | Slug            | Shortcode       |
-|--------------------|-----------------|-----------------|
-| Book nu / Bookings | `/bookings/`    | `[zbooking]`    |
-| Opret konto        | `/opret-konto/` | `[zb_signup]`   |
+| Page Title           | Slug            | Shortcode         | Notes |
+|----------------------|-----------------|-------------------|-------|
+| Book nu / Bookings   | `/bookings/`    | `[zbooking]`      | The main booking form |
+| Login / Opret konto  | `/login/`       | `[zb_auth]`       | Combined login + signup on one page |
+| Min konto            | `/min-konto/`   | `[zb_dashboard]`  | Customer portal (bookings, profile, password) |
 
-> Both pages are automatically protected from page caching (WP Rocket, LiteSpeed, W3TC).
+> All pages are automatically protected from page caching (WP Rocket, LiteSpeed, W3TC).
+
+> **After deactivating Ultimate Member:** Point your login URL to `/login/` and your account URL to `/min-konto/`.
 
 ---
 
@@ -55,12 +58,12 @@ Zbooking is a custom booking management system built for **homefoto.dk** — a p
 
 Renders the full multi-step booking form for logged-in customers.
 
-**Where to place it:** On your booking page (e.g., a page with slug `/bookings/`).
+**Where to place it:** A page with slug `/bookings/`.
 
 **Behaviour:**
-- If the visitor is **not logged in**, they are redirected to `/login?redirect_to=/bookings/` automatically.
-- If the visitor **is logged in**, the form appears pre-filled with their saved company name, contact person, and phone number (read fresh from the WordPress database on every load).
-- After submission, the customer is shown a confirmation card with their booking details and status.
+- Not logged in → redirected to `/login/?redirect_to=/bookings/` automatically.
+- Logged in → form pre-filled from saved account data.
+- After submission → confirmation card shown with booking details and status.
 
 **What the form collects:**
 
@@ -71,9 +74,9 @@ Renders the full multi-step booking form for logged-in customers.
 | E-mail | ✅ | Pre-filled from WP account |
 | Telefon | ✅ | Pre-filled from account |
 | Sælgers kontakt | ❌ | Seller name & phone |
-| Ejendomsadresse | ✅ | Property address — never cached |
+| Ejendomsadresse | ✅ | Property address |
 | Booket af | ✅ | Person making the booking |
-| Services | ✅ | Static clickable list (from admin) |
+| Services | ✅ | Clickable list from admin |
 | Dato | ✅ | Min: tomorrow |
 | Tidspunkt | ✅ | Time picker |
 | Kommentarer | ❌ | Free text |
@@ -81,23 +84,25 @@ Renders the full multi-step booking form for logged-in customers.
 
 **After submission:**
 1. Booking saved to `wp_zb_bookings` with status `pending`
-2. Admin at `booking@homefoto.dk` receives an email with one-click **Bekræft** and **Afvis** links
+2. Admin receives an HTML email with one-click **Bekræft** / **Afvis** buttons + `.ics` calendar file
 3. Customer receives a Danish acknowledgement email
 
 ---
 
-### `[zb_signup]`
+### `[zb_auth]`
 
-Renders the customer registration form. Creates a WooCommerce `customer` role account.
+Unified **Login + Sign Up** on a single page. Replaces the need for Ultimate Member or separate login/register pages.
 
-**Where to place it:** On a page with slug `/opret-konto/`.
+**Where to place it:** A page with slug `/login/`.
 
 **Behaviour:**
-- If the visitor is already logged in, they are redirected to `/bookings/` immediately.
-- On successful registration, the user is logged in automatically and redirected to `/bookings/`.
-- All data is written directly to `wp_usermeta` and WooCommerce billing fields — no sessions, no transients.
+- Shows the **Login** form by default.
+- A "Mangler du en konto? Opret her" button switches to the **Sign Up** form — no page reload.
+- If already logged in → redirected to `/min-konto/` automatically.
+- On successful signup → user is logged in and redirected to `/bookings/`.
+- Admin receives a notification email on every new signup.
 
-**Fields collected:**
+**Sign Up fields collected:**
 
 | Field | Required | Saved to |
 |-------|----------|----------|
@@ -106,17 +111,27 @@ Renders the customer registration form. Creates a WooCommerce `customer` role ac
 | E-mail | ✅ | WP user email + `billing_email` |
 | Telefon | ✅ | `phone` + `billing_phone` |
 | Adresse | ✅ | `address` + `billing_address_1` |
-| CVR-nummer | ❌ | `cvr` user meta |
 | Adgangskode | ✅ | Min. 8 characters |
 
-**Error query strings** (appended to the registration page URL on failure):
+---
 
-| `?zb_error=` | Meaning |
-|-------------|---------|
-| `email_exists` | E-mail already registered |
-| `invalid_email` | Not a valid email format |
-| `weak_password` | Password shorter than 8 characters |
-| `generic` | WordPress user creation error |
+### `[zb_dashboard]`
+
+Full **Customer Portal** with three tabs. Replaces the need for Ultimate Member account pages.
+
+**Where to place it:** A page with slug `/min-konto/`.
+
+**Tabs:**
+
+| Tab | What the customer can do |
+|-----|--------------------------|
+| **Bookinger** | View all bookings, status (colour-coded), price, coupon discount. Click **"Anmod om ny tid"** to request a reschedule (sends admin a notification email). Click **"Vis faktura"** to view a printable HTML invoice (only for Accepted bookings). |
+| **Profil** | Update company name, contact person, phone, address. Optional profile picture upload. |
+| **Sikkerhed** | Change account password (confirmed with repeat field). |
+
+**Admin view:** When an Administrator visits the `[zb_dashboard]` page, they see the full admin bookings table instead of the customer portal.
+
+**Invoice security:** Invoices are only accessible to the booking owner or an administrator. Direct URL access by other users is blocked.
 
 ---
 
@@ -293,30 +308,37 @@ booking/
 │   ├── style.css               ← Front-end styles
 │   └── zb-admin.js             ← Admin booking modal JavaScript
 └── includes/
-    ├── db-table.php            ← Database schema (dbDelta)
-    ├── registration.php        ← [zb_signup] shortcode + handler
+    ├── db-table.php            ← Database schema (dbDelta) + data migration
+    ├── registration.php        ← [zb_auth] shortcode (login + signup) + profile/password handlers
     ├── booking-form.php        ← [zbooking] shortcode + coupon AJAX
-    ├── form-handler.php        ← POST handler + email dispatch
-    ├── admin-page.php          ← WP Admin menus + email action handler
-    └── user-dashboard.php      ← WC My Account tab + AJAX status update
+    ├── form-handler.php        ← POST handler + booking email dispatch
+    ├── admin-page.php          ← WP Admin menus + status email handler
+    ├── user-dashboard.php      ← [zb_dashboard] shortcode + admin table + AJAX status update
+    └── invoice-template.php    ← Secure HTML invoice renderer
 ```
 
 ---
 
 ## Changelog
 
+### v3.0 (2026-04-11) — PRO ULTIMATE
+- **`[zb_auth]`** — unified Login + Sign Up on a single page (replaces Ultimate Member)
+- **`[zb_dashboard]`** — full customer portal with Bookinger / Profil / Sikkerhed tabs (replaces Ultimate Member account pages)
+- **Built-in HTML Invoice system** — printable invoices generated on-the-fly for Accepted bookings; secure access (owner or admin only)
+- **Reschedule requests** — customers can request a new time; admin is notified by email
+- **Profile picture upload** — optional avatar via WordPress Media Library
+- **Password change** — self-service from the Sikkerhed tab
+- **Admin notifications** — email sent on every new signup, new booking, and reschedule request
+- **WooCommerce UI cleanup** — default Add-to-Cart buttons hidden; only "Book nu" remains on shop/product pages
+- Complete clean rewrite of `user-dashboard.php` — zero duplicate functions
+
 ### v2.4 (2026-04-11)
-- Full rename from OSF → Zbooking (zero OSF references remain)
-- Renamed `assets/zb-admin.js` (was `osf-admin.js`)
+- Full rename from OSF → Zbooking
 - Added `DONOTCACHEPAGE` / `nocache_headers()` protection
-- `wp_cache_delete` before every `get_user_meta` call
-- HTML `autocomplete` attributes on all form fields
 - WooCommerce HPOS compatibility declared
 - Admin one-click Confirm/Reject via `admin-post.php` with nonce
+- ICS calendar file attached to confirmation emails
 - `booked_by` field added to form, DB, and all email templates
-- WC `customer` role assigned on registration
-- All billing meta synced to WooCommerce on registration
-- `clean_user_cache()` called after meta updates
 
 ### v2.3
 - Initial refactor from original OSF plugin
