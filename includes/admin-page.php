@@ -183,34 +183,35 @@ function zb_send_status_email( $booking, $status ) {
     $site_name = get_bloginfo( 'name' ) ?: 'homefoto';
     $sep       = str_repeat( '═', 42 );
 
+    $headers = [ 'Content-Type: text/html; charset=UTF-8' ];
+
     if ( $status === 'Accepted' ) {
-        $subject = '✅ Din booking er bekræftet – faktura afventer fotografering | ' . $site_name;
-        $body    = "Hej {$booking->contact_person},\n\n";
-        $body   .= "Din booking er nu bekræftet! Vi ser frem til at fotografere ejendommen.\n\n";
-        $body   .= "{$sep}\nBOOKING-BEKRÆFTELSE\n{$sep}\n";
-        $body   .= "Booking-ID:          #{$booking->id}\n";
-        $body   .= "Firmanavn:           {$booking->company_name}\n";
-        $body   .= "Booket af:           {$booking->booked_by}\n";
-        $body   .= "Ejendomsadresse:     {$booking->address}\n";
-        $body   .= "Valgte services:     {$booking->services}\n";
-        $body   .= "Dato:                {$booking->booking_date}\n";
-        $body   .= "Tidspunkt:           {$booking->booking_time}\n";
-        $body   .= "Pris ekskl. moms:    {$booking->price} {$currency}\n";
-        if ( ! empty( $booking->coupon_price ) ) {
-            $body .= "Pris m. rabat:       {$booking->coupon_price} {$currency}\n";
+        $subject = '✅ Din booking er bekræftet – ' . $site_name;
+        $content = "Hej {$booking->contact_person},<br><br>";
+        $content .= "Din booking er nu bekræftet! Vi ser frem til at fotografere ejendommen.<br><br>";
+        $content .= "<strong>BOOKINGDETALJER:</strong><br>";
+        $content .= "Adresse: " . esc_html( $booking->address ) . "<br>";
+        $content .= "Dato: " . esc_html( $booking->booking_date ) . " " . esc_html( $booking->booking_time ) . "<br><br>";
+        $content .= "Vi har vedhæftet en kalenderfil, så du nemt kan gemme aftalen.<br><br>";
+        $content .= "Betaling sker efter fotografering.";
+
+        $attachments = [];
+        if ( function_exists( 'zb_generate_ics' ) ) {
+            $ics_file = zb_generate_ics( $booking->id, (array) $booking );
+            if ( file_exists( $ics_file ) ) $attachments[] = $ics_file;
         }
-        $body .= "Betalingsstatus:     Afventer betaling\n";
-        $body .= "{$sep}\n\n";
-        $body .= "Betaling sker efter fotografering. Du modtager en faktura på din e-mail.\n\n";
-        $body .= "Med venlig hilsen\n{$site_name}\nbooking@homefoto.dk\nhomefoto.dk";
+
+        wp_mail( $booking->email, $subject, zb_get_styled_html( 'Booking Bekræftet', $content ), $headers, $attachments );
+
+        if ( ! empty( $attachments ) ) @unlink( $attachments[0] );
     } else {
         $subject = 'Din booking-anmodning – opdatering | ' . $site_name;
-        $body    = "Hej {$booking->contact_person},\n\n";
-        $body   .= "Desværre kan vi ikke bekræfte din booking-anmodning for:\n";
-        $body   .= "Ejendomsadresse: {$booking->address} den {$booking->booking_date}.\n\n";
-        $body   .= "Vi beklager ulejligheden. Kontakt os på booking@homefoto.dk for at finde et nyt tidspunkt.\n\n";
-        $body   .= "Med venlig hilsen\n{$site_name}\nbooking@homefoto.dk\nhomefoto.dk";
-    }
+        $content = "Hej {$booking->contact_person},<br><br>";
+        $content .= "Desværre kan vi ikke bekræfte din booking-anmodning for:<br>";
+        $content .= "<strong>" . esc_html( $booking->address ) . "</strong><br><br>";
+        $content .= "Kontakt os venligst direkte hvis du ønsker at finde en anden tid.";
 
-    wp_mail( $booking->email, $subject, $body );
+        wp_mail( $booking->email, $subject, zb_get_styled_html( 'Opdatering på din booking', $content ), $headers );
+    }
+    }
 }

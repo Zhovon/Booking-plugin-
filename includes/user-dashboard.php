@@ -5,6 +5,30 @@ defined( 'ABSPATH' ) || exit;
 add_action( 'init',                                       'zb_add_bookings_endpoint' );
 add_filter( 'woocommerce_account_menu_items',             'zb_add_bookings_menu_item' );
 add_action( 'woocommerce_account_user-bookings_endpoint', 'zb_render_bookings_tab' );
+add_shortcode( 'zb_dashboard', 'zb_render_bookings_tab' );
+add_action( 'init', 'zb_handle_reschedule_request' );
+
+function zb_handle_reschedule_request() {
+    if ( ! isset( $_GET['zb_reschedule'] ) ) return;
+    $id = absint( $_GET['zb_reschedule'] );
+    if ( ! wp_verify_nonce( $_GET['_wpnonce'], 'zb_reschedule_' . $id ) ) return;
+    
+    global $wpdb;
+    $booking = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}zb_bookings WHERE id = %d AND user_id = %d", $id, get_current_user_id() ) );
+    if ( ! $booking ) return;
+
+    $subject = '[RE-SCHEDULING REQUEST] #' . $id . ' – ' . $booking->company_name;
+    $body    = "A customer has requested to reschedule booking #{$id}.\n\n";
+    $body   .= "Address: " . $booking->address . "\n";
+    $body   .= "Current Date: " . $booking->booking_date . " " . $booking->booking_time . "\n";
+    $body   .= "\nPlease contact the customer at " . $booking->email . " to arrange a new time.\n";
+    $body   .= "\nManage bookings: " . admin_url('admin.php?page=zb-show-bookings');
+
+    wp_mail( get_option('admin_email'), $subject, $body );
+    
+    wp_safe_redirect( add_query_arg( 'zb_msg', 'reschedule_sent', wp_get_referer() ) );
+    exit;
+}
 
 function zb_add_bookings_endpoint() {
     add_rewrite_endpoint( 'user-bookings', EP_ROOT | EP_PAGES );
@@ -55,7 +79,7 @@ function zb_render_customer_bookings_table() {
             <thead>
                 <tr>
                     <th>ID</th><th>Adresse</th><th>Ydelser</th>
-                    <th>Dato / Tid</th><th>Pris ekskl. moms</th><th>Status</th>
+                    <th>Dato / Tid</th><th>Pris ekskl. moms</th><th>Status</th><th>Handling</th>
                 </tr>
             </thead>
             <tbody>
@@ -76,6 +100,12 @@ function zb_render_customer_bookings_table() {
                         <?php endif; ?>
                     </td>
                     <td><?php echo wp_kses( $st, [ 'span' => [ 'style' => [] ] ] ); ?></td>
+                    <td>
+                        <?php if ( $b->status === 'pending' || $b->status === 'Accepted' ) : ?>
+                        <a href="<?php echo esc_url( wp_nonce_url( add_query_arg( 'zb_reschedule', $b->id, wp_get_referer() ), 'zb_reschedule_' . $b->id ) ); ?>" 
+                           style="font-size:12px; color:#4a7c59; text-decoration:none; font-weight:600;">Request Reschedule</a>
+                        <?php endif; ?>
+                    </td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>

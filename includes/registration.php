@@ -3,6 +3,28 @@
 defined( 'ABSPATH' ) || exit;
 
 add_action( 'init', 'zb_handle_signup' );
+add_action( 'init', 'zb_handle_login' );
+
+function zb_handle_login() {
+    if ( ! isset( $_POST['zb_login_submit'] ) ) return;
+    if ( ! wp_verify_nonce( $_POST['zb_login_nonce'], 'zb_login_action' ) ) wp_die( 'Sikkerhedstjek fejlede.' );
+
+    $creds = [
+        'user_login'    => sanitize_text_field( $_POST['log'] ),
+        'user_password' => $_POST['pwd'],
+        'remember'      => isset( $_POST['rememberme'] ),
+    ];
+
+    $user = wp_signon( $creds, is_ssl() );
+
+    if ( is_wp_error( $user ) ) {
+        wp_safe_redirect( add_query_arg( 'zb_login_error', '1', wp_get_referer() ) );
+        exit;
+    }
+
+    wp_safe_redirect( site_url( '/bookings/' ) );
+    exit;
+}
 
 function zb_handle_signup() {
     if ( ! isset( $_POST['zb_signup_submit'] ) ) {
@@ -219,6 +241,49 @@ function zb_signup_form() {
             <p class="zb-login-hint">
                 Har du allerede en konto?
                 <a href="<?php echo esc_url( site_url( '/login' ) ); ?>">Log ind her</a>
+            </p>
+        </form>
+    </div>
+    <?php
+    return ob_get_clean();
+}
+add_shortcode( 'zb_login',  'zb_login_form' );
+
+function zb_login_form() {
+    if ( is_user_logged_in() ) {
+        return '<p class="zb-alert">Du er allerede logget ind. <a href="'.esc_url(site_url('/bookings/')).'">Gå til Dashboard</a></p>';
+    }
+    
+    $error = isset( $_GET['zb_login_error'] ) ? '<div class="zb-alert zb-alert--error">Forkert e-mail eller adgangskode. Prøv igen.</div>' : '';
+    
+    ob_start();
+    ?>
+    <style>
+        .zb-login-wrap { max-width: 400px; margin: 40px auto; font-family: inherit; }
+        .zb-login-wrap h2 { font-size: 22px; font-weight: 700; margin-bottom: 20px; text-align: center; }
+        .zb-login-form { background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); display: flex; flex-direction: column; gap: 15px; }
+        .zb-login-btn { padding: 12px; background: #4a7c59; color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
+        .zb-login-btn:hover { background: #3d6b4c; }
+    </style>
+    <div class="zb-login-wrap">
+        <h2>Log ind</h2>
+        <?php echo $error; ?>
+        <form method="post" class="zb-login-form">
+            <?php wp_nonce_field( 'zb_login_action', 'zb_login_nonce' ); ?>
+            <div class="zb-field">
+                <label>E-mail</label>
+                <input type="text" name="log" required>
+            </div>
+            <div class="zb-field">
+                <label>Adgangskode</label>
+                <input type="password" name="pwd" required>
+            </div>
+            <label style="font-size: 13px; font-weight: 400;">
+                <input name="rememberme" type="checkbox" value="forever"> Husk mig
+            </label>
+            <button type="submit" name="zb_login_submit" class="zb-login-btn">Log ind</button>
+            <p style="text-align:center; font-size:13px; margin-top:10px;">
+                Mangler du en konto? <a href="<?php echo esc_url(site_url('/opret-konto/')); ?>" style="color:#4a7c59; font-weight:600;">Opret her</a>
             </p>
         </form>
     </div>

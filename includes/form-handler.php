@@ -127,6 +127,35 @@ function zb_handle_booking() {
     exit;
 }
 
+function zb_generate_ics( $booking_id, $data ) {
+    $start = date( 'Ymd\THis', strtotime( $data['booking_date'] . ' ' . $data['booking_time'] ) );
+    $end   = date( 'Ymd\THis', strtotime( $data['booking_date'] . ' ' . $data['booking_time'] . ' +1 hour' ) );
+    $addr  = str_replace( ',', '', $data['address'] );
+    
+    $ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Zbooking//NONSGML v1.0//EN\r\nBEGIN:VEVENT\r\n";
+    $ics .= "UID:" . $booking_id . "@" . parse_url(home_url(), PHP_URL_HOST) . "\r\n";
+    $ics .= "DTSTAMP:" . gmdate('Ymd\THis\Z') . "\r\n";
+    $ics .= "DTSTART:{$start}\r\nDTEND:{$end}\r\n";
+    $ics .= "SUMMARY:Foto/Video: " . addslashes($data['address']) . "\r\n";
+    $ics .= "DESCRIPTION:Booking #" . $booking_id . "\\nServices: " . addslashes($data['services']) . "\r\n";
+    $ics .= "LOCATION:" . addslashes($addr) . "\r\n";
+    $ics .= "END:VEVENT\r\nEND:VCALENDAR";
+    
+    $upload_dir = wp_upload_dir();
+    $file_path  = $upload_dir['basedir'] . '/booking-' . $booking_id . '.ics';
+    file_put_contents( $file_path, $ics );
+    return $file_path;
+}
+
+function zb_get_styled_html( $heading, $content ) {
+    if ( ! class_exists( 'WooCommerce' ) ) return $content;
+    ob_start();
+    wc_get_template( 'emails/email-header.php', [ 'email_heading' => $heading ] );
+    echo wpautop( wptexturize( $content ) );
+    wc_get_template( 'emails/email-footer.php' );
+    return ob_get_clean();
+}
+
 function zb_send_booking_emails( $booking_id, $data ) {
     $currency  = class_exists( 'WooCommerce' ) ? get_woocommerce_currency_symbol() : 'kr';
     $site_name = get_bloginfo( 'name' ) ?: 'homefoto';
@@ -141,59 +170,26 @@ function zb_send_booking_emails( $booking_id, $data ) {
         'zb_booking_action_' . $booking_id
     );
 
-    $admin_subject = '[NY ANMODNING #' . $booking_id . '] ' . $data['company_name'] . ' – ' . wp_strip_all_tags( $data['address'] );
-    $admin_body    = "Ny booking-anmodning modtaget (ID: #{$booking_id})\n\n";
-    $admin_body   .= "{$sep}\nKUNDEOPLYSNINGER\n{$sep}\n";
-    $admin_body   .= "Firmanavn:           {$data['company_name']}\n";
-    $admin_body   .= "Kontaktperson:       {$data['contact_person']}\n";
-    $admin_body   .= "Booket af:           {$data['booked_by']}\n";
-    $admin_body   .= "E-mail:              {$data['email']}\n";
-    $admin_body   .= "Telefon:             {$data['phone']}\n";
-    $admin_body   .= "\n{$sep}\nBOOKINGDETALJER\n{$sep}\n";
-    $admin_body   .= "Ejendomsadresse:     {$data['address']}\n";
-    if ( ! empty( $data['seller_contact'] ) ) {
-        $admin_body .= "Sælgers kontakt:     {$data['seller_contact']}\n";
-    }
-    $admin_body .= "Valgte services:     {$data['services']}\n";
-    $admin_body .= "Ønsket dato:         {$data['booking_date']}\n";
-    $admin_body .= "Ønsket tidspunkt:    {$data['booking_time']}\n";
-    $admin_body .= "Pris ekskl. moms:    {$data['price']} {$currency}\n";
-    if ( ! empty( $data['coupon'] ) ) {
-        $admin_body .= "Rabatkode:           {$data['coupon']}\n";
-        $admin_body .= "Pris m. rabat:       {$data['coupon_price']} {$currency}\n";
-    }
-    if ( ! empty( $data['comments'] ) ) {
-        $admin_body .= "Kommentarer:         {$data['comments']}\n";
-    }
-    $admin_body .= "\n{$sep}\nHANDLING PÅKRÆVET\n{$sep}\n\n";
-    $admin_body .= "✅  BEKRÆFT booking:\n{$confirm_url}\n\n";
-    $admin_body .= "❌  AFVIS booking:\n{$reject_url}\n\n";
-    $admin_body .= "── Alle bookinger:\n" . admin_url( 'admin.php?page=zb-show-bookings' ) . "\n";
+    $admin_content = "Ny booking-anmodning modtaget (ID: #{$booking_id})<br><br>";
+    $admin_content .= "<strong>KUNDEOPLYSNINGER</strong><br>";
+    $admin_content .= "Firmanavn: {$data['company_name']}<br>";
+    $admin_content .= "Kontakt: {$data['contact_person']}<br>";
+    $admin_content .= "Adresse: {$data['address']}<br>";
+    $admin_content .= "Tlf: {$data['phone']}<br><br>";
+    $admin_content .= "<strong>HANDLING PÅKRÆVET:</strong><br>";
+    $admin_content .= '<a href="'.$confirm_url.'" style="padding:10px 20px; background:#4a7c59; color:#fff; text-decoration:none; border-radius:5px; display:inline-block; margin-right:10px;">BEKRÆFT</a>';
+    $admin_content .= '<a href="'.$reject_url.'" style="padding:10px 20px; background:#b91c1c; color:#fff; text-decoration:none; border-radius:5px; display:inline-block;">AFVIS</a>';
 
-    wp_mail( get_option( 'admin_email' ), $admin_subject, $admin_body );
+    $headers = [ 'Content-Type: text/html; charset=UTF-8' ];
+    wp_mail( get_option( 'admin_email' ), $admin_subject, zb_get_styled_html( 'Ny Booking Anmodning', $admin_content ), $headers );
 
-    $customer_subject = 'Din booking-anmodning er modtaget – ' . $site_name;
-    $customer_body    = "Hej {$data['contact_person']},\n\n";
-    $customer_body   .= "Tak for din booking-anmodning hos {$site_name}.\n";
-    $customer_body   .= "Vi bekræfter hermed, at vi har modtaget din anmodning og behandler den snarest.\n";
-    $customer_body   .= "Du vil modtage en endelig bekræftelse pr. e-mail.\n\n";
-    $customer_body   .= "{$sep}\nBOOKING-ANMODNING\n{$sep}\n";
-    $customer_body   .= "Booking-ID:          #{$booking_id}\n";
-    $customer_body   .= "Firmanavn:           {$data['company_name']}\n";
-    $customer_body   .= "Booket af:           {$data['booked_by']}\n";
-    $customer_body   .= "Ejendomsadresse:     {$data['address']}\n";
-    $customer_body   .= "Valgte services:     {$data['services']}\n";
-    $customer_body   .= "Ønsket dato:         {$data['booking_date']}\n";
-    $customer_body   .= "Ønsket tidspunkt:    {$data['booking_time']}\n";
-    $customer_body   .= "Pris ekskl. moms:    {$data['price']} {$currency}\n";
-    if ( ! empty( $data['coupon'] ) ) {
-        $customer_body .= "Rabat ({$data['coupon']}):    {$data['coupon_price']} {$currency}\n";
-    }
-    $customer_body .= "Status:              Afventer bekræftelse\n";
-    $customer_body .= "{$sep}\n\n";
-    $customer_body .= "Betaling sker efter fotografering.\n\n";
-    $admin_email = get_option( 'admin_email' );
-    $customer_body .= "Med venlig hilsen\n{$site_name}\n{$admin_email}\n" . home_url();
+    $cust_content = "Hej {$data['contact_person']},<br><br>";
+    $cust_content .= "Tak for din booking-anmodning. Vi bekræfter hermed at vi har modtaget den og behandler den snarest.<br><br>";
+    $cust_content .= "<strong>Detaljer:</strong><br>";
+    $cust_content .= "Adresse: {$data['address']}<br>";
+    $cust_content .= "Ydelser: {$data['services']}<br>";
+    $cust_content .= "Dato: {$data['booking_date']} {$data['booking_time']}<br><br>";
+    $cust_content .= "Betaling sker efter fotografering.";
 
-    wp_mail( $data['email'], $customer_subject, $customer_body );
+    wp_mail( $data['email'], $customer_subject, zb_get_styled_html( 'Booking Modtaget', $cust_content ), $headers );
 }
