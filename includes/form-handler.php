@@ -169,7 +169,7 @@ function zb_send_booking_emails( $booking_id, $data ) {
     $admin_body .= "❌  AFVIS booking:\n{$reject_url}\n\n";
     $admin_body .= "── Alle bookinger:\n" . admin_url( 'admin.php?page=zb-show-bookings' ) . "\n";
 
-    wp_mail( 'booking@homefoto.dk', $admin_subject, $admin_body );
+    wp_mail( get_option( 'admin_email' ), $admin_subject, $admin_body );
 
     $customer_subject = 'Din booking-anmodning er modtaget – ' . $site_name;
     $customer_body    = "Hej {$data['contact_person']},\n\n";
@@ -191,7 +191,8 @@ function zb_send_booking_emails( $booking_id, $data ) {
     $customer_body .= "Status:              Afventer bekræftelse\n";
     $customer_body .= "{$sep}\n\n";
     $customer_body .= "Betaling sker efter fotografering.\n\n";
-    $customer_body .= "Med venlig hilsen\n{$site_name}\nbooking@homefoto.dk\nhomefoto.dk";
+    $admin_email = get_option( 'admin_email' );
+    $customer_body .= "Med venlig hilsen\n{$site_name}\n{$admin_email}\n" . home_url();
 
     wp_mail( $data['email'], $customer_subject, $customer_body );
 }

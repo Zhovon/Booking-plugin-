@@ -114,6 +114,7 @@ function zb_render_admin_bookings_table() {
     ?>
     <div class="wrap">
     <h1 class="wp-heading-inline">Zbooking – Alle bookinger</h1>
+    <a href="<?php echo esc_url( admin_url( 'admin-post.php?action=zb_run_manual_migration' ) ); ?>" class="button secondary" style="margin-left:10px;">Restore / Migrate Old Data</a>
     <?php if ( $bookings ) : ?>
     <div style="overflow-x:auto;margin-top:16px;">
         <table class="widefat striped">

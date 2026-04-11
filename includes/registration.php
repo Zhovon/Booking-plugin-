@@ -85,7 +85,7 @@ function zb_signup_form() {
         'email_exists'  => 'E-mailadressen er allerede i brug. <a href="' . esc_url( wp_login_url() ) . '">Log venligst ind.</a>',
         'invalid_email' => 'Indtast venligst en gyldig e-mailadresse.',
         'weak_password' => 'Din adgangskode skal være mindst 8 tegn.',
-        'generic'       => 'Der opstod en fejl. Prøv igen eller kontakt os på booking@homefoto.dk.',
+        'generic'       => 'Der opstod en fejl. Prøv igen eller kontakt os på ' . get_option('admin_email') . '.',
     ];
 
     $error_html = '';

@@ -4,6 +4,14 @@ defined( 'ABSPATH' ) || exit;
 
 add_action( 'admin_menu', 'zb_admin_menu' );
 add_action( 'admin_menu', 'zb_add_main_menu' );
+add_action( 'admin_post_zb_run_manual_migration', 'zb_handle_manual_migration' );
+
+function zb_handle_manual_migration() {
+    if ( ! current_user_can( 'manage_options' ) ) wp_die( 'No access.' );
+    zb_create_booking_table(); // This calls create and then migrate/inject
+    wp_safe_redirect( admin_url( 'admin.php?page=zb-show-bookings' ) );
+    exit;
+}
 
 function zb_admin_menu() {
     add_submenu_page(

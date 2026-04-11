@@ -135,7 +135,7 @@ function zb_booking_form() {
                     <input id="zb_email" type="email"
                            name="email" autocomplete="email"
                            value="<?php echo esc_attr( $current_user->user_email ); ?>"
-                           placeholder="rodica@test.dk" required>
+                           placeholder="Your Email" required>
                 </div>
 
                 <div class="form-group">
@@ -236,7 +236,7 @@ function zb_booking_form() {
             <h2>Booking Overview</h2>
 
             <div class="overview-header">
-                <div class="overview-name company_name"><?php echo esc_html( $meta_company ?: 'Nunu-Betak' ); ?></div>
+                <div class="overview-name company_name"><?php echo esc_html( $meta_company ?: 'Company Name' ); ?></div>
                 <div class="overview-name contact_person"><?php echo esc_html( $meta_contact ?: $current_user->display_name ); ?></div>
             </div>
 
@@ -277,7 +277,7 @@ function zb_booking_form() {
 
                 <p class="notification-note">
                     Notifications will be sent to <?php echo esc_html( $current_user->user_email ); ?><br>
-                    and <strong>booking@homefoto.dk</strong>
+                    and <strong><?php echo esc_html( get_option( 'admin_email' ) ); ?></strong>
                 </p>
             </div>
         </div>
