@@ -112,6 +112,7 @@ function zb_handle_booking() {
     $inserted = $wpdb->insert( $table, $data, $formats );
 
     if ( ! $inserted ) {
+        error_log( 'Zbooking Database Error: ' . $wpdb->last_error );
         wp_die(
             'Der opstod en fejl under behandling af din booking. Prøv igen eller kontakt os på <a href="mailto:booking@homefoto.dk">booking@homefoto.dk</a>.',
             'Databasefejl',

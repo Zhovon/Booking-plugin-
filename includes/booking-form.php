@@ -271,7 +271,8 @@ function zb_booking_form() {
                     <button class="btn-apply" id="zbApplyBtn" type="button">Apply</button>
                 </div>
 
-                <button class="btn-confirm" type="submit" name="zb_submit_booking" id="zbSubmitBtn">
+                <input type="hidden" name="zb_submit_booking" value="1">
+                <button class="btn-confirm" type="submit" id="zbSubmitBtn">
                     Confirm Booking
                 </button>
 
