@@ -213,5 +213,4 @@ function zb_send_status_email( $booking, $status ) {
 
         wp_mail( $booking->email, $subject, zb_get_styled_html( 'Opdatering på din booking', $content ), $headers );
     }
-    }
 }

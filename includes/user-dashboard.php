@@ -177,29 +177,6 @@ function zb_render_admin_bookings_table() {
 
     $bookings = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY created_at DESC LIMIT 500" );
     ?>
-function zb_bookings_page_admin() {
-    zb_render_admin_bookings_table();
-}
-
-function zb_render_admin_bookings_table() {
-    global $wpdb;
-    $table    = $wpdb->prefix . 'zb_bookings';
-    $currency = class_exists( 'WooCommerce' ) ? get_woocommerce_currency_symbol() : 'kr';
-
-    if ( isset( $_GET['zb_notice'] ) ) {
-        $notices = [
-            'confirmed'   => 'Booking bekræftet og kundemail sendt.',
-            'rejected'    => 'Booking afvist og kundemail sendt.',
-            'already_set' => 'Status var allerede opdateret.',
-        ];
-        $msg = $notices[ sanitize_key( $_GET['zb_notice'] ) ] ?? '';
-        if ( $msg ) {
-            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( $msg ) . '</p></div>';
-        }
-    }
-
-    $bookings = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY created_at DESC LIMIT 500" );
-    ?>
     <div class="wrap">
     <h1 class="wp-heading-inline">Zbooking – Alle bookinger</h1>
     <a href="<?php echo esc_url( admin_url( 'admin-post.php?action=zb_run_manual_migration' ) ); ?>" class="button secondary" style="margin-left:10px;">Restore / Migrate Old Data</a>
@@ -246,7 +223,38 @@ function zb_render_admin_bookings_table() {
         <p style="color:#888;margin-top:16px;">Ingen bookinger modtaget endnu.</p>
     <?php endif; ?>
     </div>
-<?php
+
+    <div id="zbModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+         background:rgba(0,0,0,0.55); z-index:99999; justify-content:center; align-items:center;">
+        <div style="background:#fff; padding:28px; border-radius:10px; width:440px; max-width:96vw;
+                    box-shadow:0 8px 40px rgba(0,0,0,.25);">
+            <h2 style="margin:0 0 16px; font-size:18px;">Rediger booking</h2>
+            <form id="zbEditForm">
+                <input type="hidden" name="booking_id" id="zb_bid">
+                <p><strong>Firma:</strong> <span id="zb_modal_company"></span></p>
+                <p><strong>E-mail:</strong> <span id="zb_modal_email"></span></p>
+                <p><strong>Adresse:</strong> <span id="zb_modal_address"></span></p>
+                <p><strong>Ydelser:</strong> <span id="zb_modal_services"></span></p>
+                <p>
+                    <label for="zb_modal_status" style="font-weight:600; float:none;">Status:</label><br>
+                    <select name="status" id="zb_modal_status" style="width:100%; margin-top:6px; padding:8px;">
+                        <option value="pending">Afventer bekræftelse</option>
+                        <option value="Accepted">Bekræftet</option>
+                        <option value="Rejected">Afvist</option>
+                    </select>
+                </p>
+                <div style="display:flex; gap:8px; margin-top:16px;">
+                    <button type="submit" class="button button-primary">Gem status</button>
+                    <button type="button" id="zbCloseModal" class="button">Luk</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <style>
+        #zbModal { display:none; }
+        #zbModal.zb-open { display:flex !important; }
+    </style>
+    <?php
 }
 
 function zb_render_profile_tab() {
@@ -291,39 +299,6 @@ function zb_render_security_tab() {
         
         <button type="submit" class="zb-signup-btn">Opdater adgangskode</button>
     </form>
-    <?php
-}
-
-    <div id="zbModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
-         background:rgba(0,0,0,0.55); z-index:99999; justify-content:center; align-items:center;">
-        <div style="background:#fff; padding:28px; border-radius:10px; width:440px; max-width:96vw;
-                    box-shadow:0 8px 40px rgba(0,0,0,.25);">
-            <h2 style="margin:0 0 16px; font-size:18px;">Rediger booking</h2>
-            <form id="zbEditForm">
-                <input type="hidden" name="booking_id" id="zb_bid">
-                <p><strong>Firma:</strong> <span id="zb_modal_company"></span></p>
-                <p><strong>E-mail:</strong> <span id="zb_modal_email"></span></p>
-                <p><strong>Adresse:</strong> <span id="zb_modal_address"></span></p>
-                <p><strong>Ydelser:</strong> <span id="zb_modal_services"></span></p>
-                <p>
-                    <label for="zb_modal_status" style="font-weight:600; float:none;">Status:</label><br>
-                    <select name="status" id="zb_modal_status" style="width:100%; margin-top:6px; padding:8px;">
-                        <option value="pending">Afventer bekræftelse</option>
-                        <option value="Accepted">Bekræftet</option>
-                        <option value="Rejected">Afvist</option>
-                    </select>
-                </p>
-                <div style="display:flex; gap:8px; margin-top:16px;">
-                    <button type="submit" class="button button-primary">Gem status</button>
-                    <button type="button" id="zbCloseModal" class="button">Luk</button>
-                </div>
-            </form>
-        </div>
-    </div>
-    <style>
-        #zbModal { display:none; }
-        #zbModal.zb-open { display:flex !important; }
-    </style>
     <?php
 }
 
@@ -374,7 +349,9 @@ function zb_ajax_update_status() {
     $wpdb->update( $table, [ 'status' => $status ], [ 'id' => $id ], [ '%s' ], [ '%d' ] );
 
     if ( $status !== 'pending' ) {
-        zb_send_status_email( $booking, $status );
+        if ( function_exists('zb_send_status_email') ) {
+             zb_send_status_email( $booking, $status );
+        }
     }
 
     wp_send_json_success( [ 'status' => $status ] );
