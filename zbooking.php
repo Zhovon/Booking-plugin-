@@ -109,3 +109,29 @@ add_action( 'before_woocommerce_init', function () {
         );
     }
 } );
+
+// Secure Invoice Routing
+add_action( 'init', function() {
+    if ( ! isset( $_GET['zb_invoice'] ) || ! is_user_logged_in() ) return;
+    
+    $booking_id = absint( $_GET['zb_invoice'] );
+    global $wpdb;
+    $booking = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}zb_bookings WHERE id = %d", $booking_id ) );
+
+    if ( ! $booking ) wp_die('Booking ikke fundet.');
+    
+    // Authorization: Admin or the owner can view
+    if ( ! current_user_can('manage_options') && absint($booking->user_id) !== get_current_user_id() ) {
+        wp_die('Ingen adgang til denne faktura.');
+    }
+
+    require_once ZB_PATH . 'includes/invoice-template.php';
+    zb_render_invoice( $booking );
+    exit;
+} );
+
+// Hide default WooCommerce buttons to focus on Zbooking
+add_action( 'init', function() {
+    remove_action( 'woocommerce_after_shop_loop_item', 'woocommerce_template_loop_add_to_cart', 10 );
+    remove_action( 'woocommerce_single_product_summary', 'woocommerce_template_single_add_to_cart', 30 );
+} );

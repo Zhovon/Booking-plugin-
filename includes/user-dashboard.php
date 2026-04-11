@@ -53,9 +53,39 @@ function zb_render_bookings_tab() {
     $user = wp_get_current_user();
     if ( in_array( 'administrator', (array) $user->roles, true ) ) {
         zb_render_admin_bookings_table();
-    } else {
-        zb_render_customer_bookings_table();
+        return;
     }
+
+    $active_tab = isset( $_GET['zb_tab'] ) ? sanitize_key( $_GET['zb_tab'] ) : 'bookings';
+    ?>
+    <style>
+        .zb-tabs { display:flex; gap:20px; border-bottom:1px solid #e5e7eb; margin-bottom:30px; }
+        .zb-tab-link { padding:12px 4px; font-size:14px; font-weight:600; color:#6b7280; border-bottom:2px solid transparent; text-decoration:none; transition:0.2s; }
+        .zb-tab-link:hover { color:#4a7c59; }
+        .zb-tab-link.active { color:#4a7c59; border-bottom-color:#4a7c59; }
+        .zb-dashboard-card { background:#fff; border-radius:12px; padding:30px; box-shadow:0 1px 3px rgba(0,0,0,0.1); }
+    </style>
+    <div class="zb-tabs">
+        <a href="<?php echo esc_url( add_query_arg('zb_tab', 'bookings') ); ?>" class="zb-tab-link <?php echo $active_tab === 'bookings' ? 'active' : ''; ?>">Bookinger</a>
+        <a href="<?php echo esc_url( add_query_arg('zb_tab', 'profile') ); ?>" class="zb-tab-link <?php echo $active_tab === 'profile' ? 'active' : ''; ?>">Profil</a>
+        <a href="<?php echo esc_url( add_query_arg('zb_tab', 'security') ); ?>" class="zb-tab-link <?php echo $active_tab === 'security' ? 'active' : ''; ?>">Sikkerhed</a>
+    </div>
+    <div class="zb-dashboard-card">
+        <?php
+        switch ( $active_tab ) {
+            case 'profile':
+                zb_render_profile_tab();
+                break;
+            case 'security':
+                zb_render_security_tab();
+                break;
+            default:
+                zb_render_customer_bookings_table();
+                break;
+        }
+        ?>
+    </div>
+    <?php
 }
 
 function zb_render_customer_bookings_table() {
@@ -103,7 +133,12 @@ function zb_render_customer_bookings_table() {
                     <td>
                         <?php if ( $b->status === 'pending' || $b->status === 'Accepted' ) : ?>
                         <a href="<?php echo esc_url( wp_nonce_url( add_query_arg( 'zb_reschedule', $b->id, wp_get_referer() ), 'zb_reschedule_' . $b->id ) ); ?>" 
-                           style="font-size:12px; color:#4a7c59; text-decoration:none; font-weight:600;">Request Reschedule</a>
+                           style="font-size:12px; color:#4a7c59; text-decoration:none; font-weight:600; margin-right:12px;">Request Reschedule</a>
+                        <?php endif; ?>
+                        
+                        <?php if ( $b->status === 'Accepted' ) : ?>
+                        <a href="<?php echo esc_url( home_url( '?zb_invoice=' . $b->id ) ); ?>" target="_blank"
+                           style="font-size:12px; color:#4a7c59; text-decoration:none; font-weight:600;">View Invoice</a>
                         <?php endif; ?>
                     </td>
                 </tr>
@@ -119,6 +154,29 @@ function zb_render_customer_bookings_table() {
     <?php endif;
 }
 
+function zb_bookings_page_admin() {
+    zb_render_admin_bookings_table();
+}
+
+function zb_render_admin_bookings_table() {
+    global $wpdb;
+    $table    = $wpdb->prefix . 'zb_bookings';
+    $currency = class_exists( 'WooCommerce' ) ? get_woocommerce_currency_symbol() : 'kr';
+
+    if ( isset( $_GET['zb_notice'] ) ) {
+        $notices = [
+            'confirmed'   => 'Booking bekræftet og kundemail sendt.',
+            'rejected'    => 'Booking afvist og kundemail sendt.',
+            'already_set' => 'Status var allerede opdateret.',
+        ];
+        $msg = $notices[ sanitize_key( $_GET['zb_notice'] ) ] ?? '';
+        if ( $msg ) {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( $msg ) . '</p></div>';
+        }
+    }
+
+    $bookings = $wpdb->get_results( "SELECT * FROM {$table} ORDER BY created_at DESC LIMIT 500" );
+    ?>
 function zb_bookings_page_admin() {
     zb_render_admin_bookings_table();
 }
@@ -188,6 +246,53 @@ function zb_render_admin_bookings_table() {
         <p style="color:#888;margin-top:16px;">Ingen bookinger modtaget endnu.</p>
     <?php endif; ?>
     </div>
+<?php
+}
+
+function zb_render_profile_tab() {
+    $user_id = get_current_user_id();
+    $company = get_user_meta( $user_id, 'company_name', true );
+    $contact = get_user_meta( $user_id, 'contact_person', true );
+    $phone   = get_user_meta( $user_id, 'phone', true );
+    $address = get_user_meta( $user_id, 'address', true );
+    $avatar_id = get_user_meta( $user_id, 'zb_avatar_id', true );
+    $avatar_url = $avatar_id ? wp_get_attachment_url( $avatar_id ) : '';
+    ?>
+    <form method="post" enctype="multipart/form-data" class="zb-signup-form" style="box-shadow:none; padding:0;">
+        <?php wp_nonce_field( 'zb_update_profile', 'zb_profile_nonce' ); ?>
+        <input type="hidden" name="zb_action" value="update_profile">
+        
+        <div class="zb-field">
+            <label>Profilbillede (valgfrit)</label>
+            <?php if ( $avatar_url ) : ?>
+                <img src="<?php echo esc_url( $avatar_url ); ?>" style="width:80px;height:80px;object-fit:cover;border-radius:50%;margin-bottom:10px;display:block;">
+            <?php endif; ?>
+            <input type="file" name="zb_avatar" accept="image/*">
+        </div>
+
+        <div class="zb-field"><label>Firmanavn</label><input type="text" name="company_name" value="<?php echo esc_attr($company); ?>"></div>
+        <div class="zb-field"><label>Kontaktperson</label><input type="text" name="contact_person" value="<?php echo esc_attr($contact); ?>"></div>
+        <div class="zb-field"><label>Telefon</label><input type="text" name="phone" value="<?php echo esc_attr($phone); ?>"></div>
+        <div class="zb-field"><label>Adresse</label><input type="text" name="address" value="<?php echo esc_attr($address); ?>"></div>
+        
+        <button type="submit" class="zb-signup-btn">Gem ændringer</button>
+    </form>
+    <?php
+}
+
+function zb_render_security_tab() {
+    ?>
+    <form method="post" class="zb-signup-form" style="box-shadow:none; padding:0;">
+        <?php wp_nonce_field( 'zb_update_password', 'zb_pwd_nonce' ); ?>
+        <input type="hidden" name="zb_action" value="update_password">
+        
+        <div class="zb-field"><label>Ny adgangskode</label><input type="password" name="new_password" required minlength="8" placeholder="Mindst 8 tegn"></div>
+        <div class="zb-field"><label>Bekræft adgangskode</label><input type="password" name="confirm_password" required minlength="8"></div>
+        
+        <button type="submit" class="zb-signup-btn">Opdater adgangskode</button>
+    </form>
+    <?php
+}
 
     <div id="zbModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
          background:rgba(0,0,0,0.55); z-index:99999; justify-content:center; align-items:center;">

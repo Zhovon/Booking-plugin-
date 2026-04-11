@@ -4,6 +4,49 @@ defined( 'ABSPATH' ) || exit;
 
 add_action( 'init', 'zb_handle_signup' );
 add_action( 'init', 'zb_handle_login' );
+add_action( 'init', 'zb_handle_dashboard_updates' );
+
+function zb_handle_dashboard_updates() {
+    if ( ! is_user_logged_in() || ! isset( $_POST['zb_action'] ) ) return;
+    $user_id = get_current_user_id();
+
+    if ( $_POST['zb_action'] === 'update_profile' ) {
+        if ( ! wp_verify_nonce( $_POST['zb_profile_nonce'], 'zb_update_profile' ) ) wp_die( 'Ugyldig anmodning.' );
+
+        update_user_meta( $user_id, 'company_name',   sanitize_text_field( $_POST['company_name'] ) );
+        update_user_meta( $user_id, 'contact_person', sanitize_text_field( $_POST['contact_person'] ) );
+        update_user_meta( $user_id, 'phone',          $phone = sanitize_text_field( $_POST['phone'] ) );
+        update_user_meta( $user_id, 'address',        $address = sanitize_text_field( $_POST['address'] ) );
+        
+        // Sync with WooCommerce billing
+        update_user_meta( $user_id, 'billing_phone',     $phone );
+        update_user_meta( $user_id, 'billing_address_1', $address );
+
+        if ( ! empty( $_FILES['zb_avatar']['name'] ) ) {
+            require_once ABSPATH . 'wp-admin/includes/image.php';
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+            require_once ABSPATH . 'wp-admin/includes/media.php';
+
+            $attach_id = media_handle_upload( 'zb_avatar', 0 );
+            if ( ! is_wp_error( $attach_id ) ) {
+                update_user_meta( $user_id, 'zb_avatar_id', $attach_id );
+            }
+        }
+        wp_safe_redirect( add_query_arg( [ 'zb_tab' => 'profile', 'zb_msg' => 'profile_updated' ], wp_get_referer() ) );
+        exit;
+    }
+
+    if ( $_POST['zb_action'] === 'update_password' ) {
+        if ( ! wp_verify_nonce( $_POST['zb_pwd_nonce'], 'zb_update_password' ) ) wp_die( 'Ugyldig anmodning.' );
+        if ( $_POST['new_password'] !== $_POST['confirm_password'] ) {
+            wp_die( 'Adgangskoderne er ikke ens.', 'Fejl', [ 'back_link' => true ] );
+        }
+        wp_set_password( $_POST['new_password'], $user_id );
+        wp_set_auth_cookie( $user_id );
+        wp_safe_redirect( add_query_arg( [ 'zb_tab' => 'security', 'zb_msg' => 'pwd_updated' ], wp_get_referer() ) );
+        exit;
+    }
+}
 
 function zb_handle_login() {
     if ( ! isset( $_POST['zb_login_submit'] ) ) return;
@@ -88,6 +131,12 @@ function zb_handle_signup() {
 
     clean_user_cache( $user_id );
 
+    // Admin Notification for New Signup
+    $admin_subject = '[NY BRUKER] Ny konto oprettet – ' . $company;
+    $admin_body    = "En ny kunde har oprettet en konto:\n\n";
+    $admin_body   .= "Firma: {$company}\nKontakt: {$contact}\nE-mail: {$email}\nTlf: {$phone}\n";
+    wp_mail( get_option('admin_email'), $admin_subject, $admin_body );
+
     wp_set_current_user( $user_id );
     wp_set_auth_cookie( $user_id, true );
 
@@ -95,198 +144,67 @@ function zb_handle_signup() {
     exit;
 }
 
-add_shortcode( 'zb_signup', 'zb_signup_form' );
+add_shortcode( 'zb_auth', 'zb_unified_auth_form' );
 
-function zb_signup_form() {
-    if ( is_user_logged_in() ) {
-        wp_safe_redirect( site_url( '/bookings/' ) );
-        exit;
-    }
-
-    $errors = [
-        'email_exists'  => 'E-mailadressen er allerede i brug. <a href="' . esc_url( wp_login_url() ) . '">Log venligst ind.</a>',
-        'invalid_email' => 'Indtast venligst en gyldig e-mailadresse.',
-        'weak_password' => 'Din adgangskode skal være mindst 8 tegn.',
-        'generic'       => 'Der opstod en fejl. Prøv igen eller kontakt os på ' . get_option('admin_email') . '.',
-    ];
-
-    $error_html = '';
-    if ( isset( $_GET['zb_error'] ) && array_key_exists( $_GET['zb_error'], $errors ) ) {
-        $msg        = $errors[ sanitize_key( $_GET['zb_error'] ) ];
-        $error_html = '<div class="zb-alert zb-alert--error">' . wp_kses( $msg, [ 'a' => [ 'href' => [] ] ] ) . '</div>';
-    }
-
-    ob_start();
-    ?>
-    <style>
-        .zb-signup-wrap {
-            max-width: 480px;
-            margin: 40px auto;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        }
-        .zb-signup-wrap h2 { font-size: 22px; font-weight: 700; color: #111; margin: 0 0 6px; }
-        .zb-signup-wrap .zb-sub { color: #666; font-size: 14px; margin: 0 0 24px; }
-        .zb-signup-form {
-            background: #fff;
-            padding: 32px;
-            border-radius: 12px;
-            box-shadow: 0 2px 16px rgba(0,0,0,0.08);
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-        .zb-field label {
-            display: block;
-            font-size: 13px;
-            font-weight: 600;
-            color: #444;
-            margin-bottom: 5px;
-            float: none;
-        }
-        .zb-field input {
-            width: 100%;
-            padding: 11px 14px;
-            border: 1.5px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 14px;
-            box-sizing: border-box;
-            transition: border-color 0.2s, box-shadow 0.2s;
-            color: #111;
-        }
-        .zb-field input:focus { border-color: #4a7c59; outline: none; box-shadow: 0 0 0 3px rgba(74,124,89,0.1); }
-        .zb-field .zb-opt { font-weight: 400; color: #999; font-size: 11px; }
-        .zb-signup-btn {
-            padding: 13px;
-            background: #4a7c59;
-            color: #fff;
-            border: none;
-            border-radius: 8px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-            font-family: inherit;
-        }
-        .zb-signup-btn:hover { background: #3d6b4c; }
-        .zb-login-hint { text-align: center; font-size: 13px; color: #777; }
-        .zb-login-hint a { color: #4a7c59; font-weight: 600; text-decoration: none; }
-        .zb-alert { padding: 12px 16px; border-radius: 8px; font-size: 14px; margin-bottom: 4px; }
-        .zb-alert--error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-    </style>
-
-    <div class="zb-signup-wrap">
-        <h2>Opret konto</h2>
-        <p class="zb-sub">Opret en konto for at booke og administrere dine opgaver hos homefoto.</p>
-
-        <?php echo $error_html; ?>
-
-        <form method="post" class="zb-signup-form" novalidate>
-            <?php wp_nonce_field( 'zb_signup_action', 'zb_signup_nonce' ); ?>
-
-            <div class="zb-field">
-                <label for="zb_reg_company">Firmanavn</label>
-                <input id="zb_reg_company" type="text" name="company_name"
-                       autocomplete="organization"
-                       placeholder="Skriv dit firmanavn" required>
-            </div>
-
-            <div class="zb-field">
-                <label for="zb_reg_contact">Kontaktperson</label>
-                <input id="zb_reg_contact" type="text" name="contact_person"
-                       autocomplete="name"
-                       placeholder="Fulde navn" required>
-            </div>
-
-            <div class="zb-field">
-                <label for="zb_reg_email">E-mail</label>
-                <input id="zb_reg_email" type="email" name="email"
-                       autocomplete="email"
-                       placeholder="din@email.dk" required>
-            </div>
-
-            <div class="zb-field">
-                <label for="zb_reg_phone">Telefon</label>
-                <input id="zb_reg_phone" type="tel" name="phone"
-                       autocomplete="tel"
-                       placeholder="+45 12 34 56 78" required>
-            </div>
-
-            <div class="zb-field">
-                <label for="zb_reg_address">Adresse</label>
-                <input id="zb_reg_address" type="text" name="address"
-                       autocomplete="street-address"
-                       placeholder="Vejnavn, postnummer, by" required>
-            </div>
-
-            <div class="zb-field">
-                <label for="zb_reg_cvr">CVR-nummer
-                    <span class="zb-opt">(valgfrit)</span>
-                </label>
-                <input id="zb_reg_cvr" type="text" name="cvr"
-                       autocomplete="off"
-                       placeholder="f.eks. 12345678">
-            </div>
-
-            <div class="zb-field">
-                <label for="zb_reg_pass">Adgangskode</label>
-                <input id="zb_reg_pass" type="password" name="password"
-                       autocomplete="new-password"
-                       placeholder="Mindst 8 tegn" required minlength="8">
-            </div>
-
-            <button type="submit" name="zb_signup_submit" class="zb-signup-btn">
-                Opret konto
-            </button>
-
-            <p class="zb-login-hint">
-                Har du allerede en konto?
-                <a href="<?php echo esc_url( site_url( '/login' ) ); ?>">Log ind her</a>
-            </p>
-        </form>
-    </div>
-    <?php
-    return ob_get_clean();
-}
-add_shortcode( 'zb_login',  'zb_login_form' );
-
-function zb_login_form() {
+function zb_unified_auth_form() {
     if ( is_user_logged_in() ) {
         return '<p class="zb-alert">Du er allerede logget ind. <a href="'.esc_url(site_url('/bookings/')).'">Gå til Dashboard</a></p>';
     }
-    
-    $error = isset( $_GET['zb_login_error'] ) ? '<div class="zb-alert zb-alert--error">Forkert e-mail eller adgangskode. Prøv igen.</div>' : '';
+
+    $mode = ( isset($_GET['action']) && $_GET['action'] === 'signup' ) ? 'signup' : 'login';
     
     ob_start();
     ?>
-    <style>
-        .zb-login-wrap { max-width: 400px; margin: 40px auto; font-family: inherit; }
-        .zb-login-wrap h2 { font-size: 22px; font-weight: 700; margin-bottom: 20px; text-align: center; }
-        .zb-login-form { background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); display: flex; flex-direction: column; gap: 15px; }
-        .zb-login-btn { padding: 12px; background: #4a7c59; color: #fff; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; }
-        .zb-login-btn:hover { background: #3d6b4c; }
-    </style>
-    <div class="zb-login-wrap">
-        <h2>Log ind</h2>
-        <?php echo $error; ?>
-        <form method="post" class="zb-login-form">
-            <?php wp_nonce_field( 'zb_login_action', 'zb_login_nonce' ); ?>
-            <div class="zb-field">
-                <label>E-mail</label>
-                <input type="text" name="log" required>
+    <div class="zb-auth-container">
+        <?php if ( $mode === 'login' ) : ?>
+            <div class="zb-login-wrap">
+                <h2>Log ind</h2>
+                <?php if ( isset( $_GET['zb_login_error'] ) ) : ?>
+                    <div class="zb-alert zb-alert--error">Forkert e-mail eller adgangskode.</div>
+                <?php endif; ?>
+                <form method="post" class="zb-login-form">
+                    <?php wp_nonce_field( 'zb_login_action', 'zb_login_nonce' ); ?>
+                    <div class="zb-field"><label>E-mail</label><input type="text" name="log" required></div>
+                    <div class="zb-field"><label>Adgangskode</label><input type="password" name="pwd" required></div>
+                    <label style="font-size: 13px; font-weight: 400;"><input name="rememberme" type="checkbox" value="forever"> Husk mig</label>
+                    <button type="submit" name="zb_login_submit" class="zb-login-btn">Log ind</button>
+                    <p style="text-align:center; font-size:13px; margin-top:20px;">
+                        Mangler du en konto? <a href="<?php echo esc_url(add_query_arg('action', 'signup')); ?>" style="color:#4a7c59; font-weight:600;">Opret her</a>
+                    </p>
+                </form>
             </div>
-            <div class="zb-field">
-                <label>Adgangskode</label>
-                <input type="password" name="pwd" required>
+        <?php else : ?>
+            <div class="zb-signup-wrap" style="margin-top:0;">
+                <h2>Opret konto</h2>
+                <p class="zb-sub">Opret konto for at administrere dine bookinger.</p>
+                <form method="post" class="zb-signup-form" novalidate>
+                    <?php wp_nonce_field( 'zb_signup_action', 'zb_signup_nonce' ); ?>
+                    <div class="zb-field"><label>Firmanavn</label><input type="text" name="company_name" required></div>
+                    <div class="zb-field"><label>Kontaktperson</label><input type="text" name="contact_person" required></div>
+                    <div class="zb-field"><label>E-mail</label><input type="email" name="email" required></div>
+                    <div class="zb-field"><label>Telefon</label><input type="tel" name="phone" required></div>
+                    <div class="zb-field"><label>Adresse</label><input type="text" name="address" required></div>
+                    <div class="zb-field"><label>Adgangskode</label><input type="password" name="password" required minlength="8"></div>
+                    <button type="submit" name="zb_signup_submit" class="zb-signup-btn">Opret konto</button>
+                    <p style="text-align:center; font-size:13px; margin-top:20px;">
+                        Har du allerede en konto? <a href="<?php echo esc_url(remove_query_arg('action')); ?>" style="color:#4a7c59; font-weight:600;">Log ind her</a>
+                    </p>
+                </form>
             </div>
-            <label style="font-size: 13px; font-weight: 400;">
-                <input name="rememberme" type="checkbox" value="forever"> Husk mig
-            </label>
-            <button type="submit" name="zb_login_submit" class="zb-login-btn">Log ind</button>
-            <p style="text-align:center; font-size:13px; margin-top:10px;">
-                Mangler du en konto? <a href="<?php echo esc_url(site_url('/opret-konto/')); ?>" style="color:#4a7c59; font-weight:600;">Opret her</a>
-            </p>
-        </form>
+        <?php endif; ?>
     </div>
+    <style>
+        .zb-auth-container { max-width: 480px; margin: 40px auto; font-family: inherit; }
+        .zb-auth-container h2 { font-size: 24px; font-weight: 700; text-align: center; margin-bottom: 25px; color: #111; }
+        .zb-login-form, .zb-signup-form { background: #fff; padding: 35px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); display: flex; flex-direction: column; gap: 18px; border: 1px solid #f0f0f0; }
+        .zb-login-btn, .zb-signup-btn { padding: 14px; background: #4a7c59; color: #fff; border: none; border-radius: 10px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .zb-login-btn:hover, .zb-signup-btn:hover { background: #3d6b4c; transform: translateY(-1px); }
+        .zb-field label { display: block; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 6px; }
+        .zb-field input { width: 100%; padding: 12px 15px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 14px; box-sizing: border-box; }
+        .zb-field input:focus { border-color: #4a7c59; outline: none; box-shadow: 0 0 0 3px rgba(74,124,89,0.1); }
+        .zb-alert { padding: 12px 16px; border-radius: 8px; font-size: 14px; margin-bottom: 10px; text-align: center; }
+        .zb-alert--error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+    </style>
     <?php
     return ob_get_clean();
 }
