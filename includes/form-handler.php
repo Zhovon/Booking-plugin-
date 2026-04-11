@@ -180,6 +180,9 @@ function zb_send_booking_emails( $booking_id, $data ) {
     $admin_content .= '<a href="'.$confirm_url.'" style="padding:10px 20px; background:#4a7c59; color:#fff; text-decoration:none; border-radius:5px; display:inline-block; margin-right:10px;">BEKRÆFT</a>';
     $admin_content .= '<a href="'.$reject_url.'" style="padding:10px 20px; background:#b91c1c; color:#fff; text-decoration:none; border-radius:5px; display:inline-block;">AFVIS</a>';
 
+    $admin_subject    = 'Ny booking-anmodning modtaget – ' . $data['address'];
+    $customer_subject = 'Vi har modtaget din booking-anmodning – ' . $site_name;
+
     $headers = [ 'Content-Type: text/html; charset=UTF-8' ];
     wp_mail( get_option( 'admin_email' ), $admin_subject, zb_get_styled_html( 'Ny Booking Anmodning', $admin_content ), $headers );
 
