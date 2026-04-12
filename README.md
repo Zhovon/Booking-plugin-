@@ -1,6 +1,6 @@
 # Zbooking — WordPress Booking Plugin
 
-**Version:** 3.0  
+**Version:** 3.1  
 **Author:** zhovon  
 **Plugin URI:** https://zhovon.com  
 **Requires:** WordPress 5.8+, PHP 7.4+, WooCommerce 6.0+
@@ -46,6 +46,8 @@ Zbooking is a custom booking management system built for **homefoto.dk** — a p
 | Login / Opret konto  | `/login/`       | `[zb_auth]`       | Combined login + signup on one page |
 | Min konto            | `/min-konto/`   | `[zb_dashboard]`  | Customer portal (bookings, profile, password) |
 
+> These are default slugs. You can change them in **WP Admin → Zbooking → Settings** for each website.
+
 > All pages are automatically protected from page caching (WP Rocket, LiteSpeed, W3TC).
 
 > **After deactivating Ultimate Member:** Point your login URL to `/login/` and your account URL to `/min-konto/`.
@@ -61,7 +63,7 @@ Renders the full multi-step booking form for logged-in customers.
 **Where to place it:** A page with slug `/bookings/`.
 
 **Behaviour:**
-- Not logged in → redirected to `/login/?redirect_to=/bookings/` automatically.
+- Not logged in → redirected to your configured login slug with `redirect_to` parameter.
 - Logged in → form pre-filled from saved account data.
 - After submission → confirmation card shown with booking details and status.
 
@@ -78,7 +80,7 @@ Renders the full multi-step booking form for logged-in customers.
 | Booket af | ✅ | Person making the booking |
 | Services | ✅ | Clickable list from admin |
 | Dato | ✅ | Min: tomorrow |
-| Tidspunkt | ✅ | Time picker |
+| Tidspunkt | ✅ | Dynamic available slot picker (15-min interval) |
 | Kommentarer | ❌ | Free text |
 | Rabatkode | ❌ | WooCommerce coupon |
 
@@ -86,6 +88,7 @@ Renders the full multi-step booking form for logged-in customers.
 1. Booking saved to `wp_zb_bookings` with status `pending`
 2. Admin receives an HTML email with one-click **Bekræft** / **Afvis** buttons + `.ics` calendar file
 3. Customer receives a Danish acknowledgement email
+4. Booking collisions are blocked server-side (same user and different users)
 
 ---
 
@@ -93,13 +96,13 @@ Renders the full multi-step booking form for logged-in customers.
 
 Unified **Login + Sign Up** on a single page. Replaces the need for Ultimate Member or separate login/register pages.
 
-**Where to place it:** A page with slug `/login/`.
+**Where to place it:** A page with your configured login slug (default `/login/`).
 
 **Behaviour:**
 - Shows the **Login** form by default.
 - A "Mangler du en konto? Opret her" button switches to the **Sign Up** form — no page reload.
-- If already logged in → redirected to `/min-konto/` automatically.
-- On successful signup → user is logged in and redirected to `/bookings/`.
+- If already logged in → redirected to your configured dashboard slug.
+- On successful signup → user is logged in and redirected to your configured booking slug.
 - Admin receives a notification email on every new signup.
 
 **Sign Up fields collected:**
@@ -119,7 +122,7 @@ Unified **Login + Sign Up** on a single page. Replaces the need for Ultimate Mem
 
 Full **Customer Portal** with three tabs. Replaces the need for Ultimate Member account pages.
 
-**Where to place it:** A page with slug `/min-konto/`.
+**Where to place it:** A page with your configured dashboard slug (default `/min-konto/`).
 
 **Tabs:**
 
@@ -136,6 +139,18 @@ Full **Customer Portal** with three tabs. Replaces the need for Ultimate Member 
 ---
 
 ## Admin — WordPress Dashboard
+
+### Zbooking → Settings (new)
+
+Navigate to **WP Admin → Zbooking → Settings** to configure:
+
+| Group | Fields |
+|------|--------|
+| Slugs | Booking slug, Login slug, Dashboard slug |
+| Slot rules | Slot interval, default duration, business start, business end |
+| Outlook | Enable sync, Tenant ID, Client ID, Client Secret, Mailbox user |
+
+Use this page for multi-website deployment so you do not hardcode URLs in code.
 
 ### Zbooking Menu (main menu, dashicons-calendar-alt)
 
@@ -223,6 +238,48 @@ A **"Mine bookinger"** tab is added to the WooCommerce My Account page automatic
 
 ---
 
+## Booking Availability Engine (Industrial Mode)
+
+Zbooking now enforces availability in two layers:
+
+1. **Frontend dynamic slot generation**
+- When date changes, available times are fetched via AJAX.
+- Slots are generated in 15-minute steps (configurable in Settings).
+- Slots are filtered by business hours and duration.
+
+2. **Server-side final lock & conflict check**
+- On submit, date/time interval is validated again.
+- Overlap check runs against existing `pending` and `Accepted` bookings.
+- Insert path applies a short DB table lock to reduce race-condition double booking.
+- If Outlook is enabled, Graph calendar conflict is checked before save.
+
+This blocks double booking for both same and different users.
+
+---
+
+## Outlook Integration (Microsoft Graph)
+
+### What it does
+- Reads Outlook calendar busy intervals while generating available slots.
+- Re-checks Outlook conflict on final booking submit.
+- Creates Outlook calendar event when booking status becomes `Accepted`.
+
+### Setup steps
+1. Register an app in Azure AD / Microsoft Entra.
+2. Add application permission for Microsoft Graph calendar access.
+3. Grant admin consent for the tenant.
+4. Collect credentials:
+    - Tenant ID
+    - Client ID
+    - Client Secret
+    - Mailbox user (email or user ID)
+5. Enter values in **WP Admin → Zbooking → Settings** and enable Outlook sync.
+
+### Important note
+If Outlook is enabled but Graph is unreachable, booking conflicts are treated conservatively to avoid overbooking.
+
+---
+
 ## WooCommerce Coupon Integration
 
 Zbooking uses native WooCommerce coupons. Create coupons at **WP Admin → WooCommerce → Coupons**.
@@ -282,6 +339,10 @@ On booking confirmation, the coupon usage count is incremented server-side.
 | `comments` | TEXT | Customer notes |
 | `booking_date` | DATE | |
 | `booking_time` | VARCHAR(10) | |
+| `duration_minutes` | SMALLINT | Computed booking duration in minutes |
+| `timeslot_start` | DATETIME | Slot start datetime (local WP timezone) |
+| `timeslot_end` | DATETIME | Slot end datetime (local WP timezone) |
+| `outlook_event_id` | VARCHAR(191) | Linked Outlook event ID (when accepted) |
 | `status` | VARCHAR(20) | `pending` / `Accepted` / `Rejected` |
 | `created_at` | DATETIME | Auto-set on insert |
 
@@ -308,10 +369,12 @@ booking/
 │   ├── style.css               ← Front-end styles
 │   └── zb-admin.js             ← Admin booking modal JavaScript
 └── includes/
+    ├── settings.php            ← Config defaults + slug/time helpers
+    ├── outlook-sync.php        ← Microsoft Graph token/api/conflict/event service
     ├── db-table.php            ← Database schema (dbDelta) + data migration
     ├── registration.php        ← [zb_auth] shortcode (login + signup) + profile/password handlers
-    ├── booking-form.php        ← [zbooking] shortcode + coupon AJAX
-    ├── form-handler.php        ← POST handler + booking email dispatch
+    ├── booking-form.php        ← [zbooking] shortcode + coupon AJAX + dynamic slots AJAX
+    ├── form-handler.php        ← POST handler + server conflict lock + booking email dispatch
     ├── admin-page.php          ← WP Admin menus + status email handler
     ├── user-dashboard.php      ← [zb_dashboard] shortcode + admin table + AJAX status update
     └── invoice-template.php    ← Secure HTML invoice renderer
@@ -320,6 +383,19 @@ booking/
 ---
 
 ## Changelog
+
+### v3.1 (2026-04-11)
+- Added **Zbooking Settings** page for slug/time/Outlook configuration
+- Replaced hardcoded URLs with configurable slug helpers
+- Added dynamic available slot endpoint and UI for date/time selection
+- Enforced 15-minute interval booking validation server-side
+- Added interval overlap checks to block double bookings
+- Added DB-backed slot fields: `duration_minutes`, `timeslot_start`, `timeslot_end`
+- Added Outlook Graph service:
+    - token handling
+    - calendar conflict checks
+    - accepted-booking event creation
+- Added `outlook_event_id` persistence on accepted bookings
 
 ### v3.0 (2026-04-11) — PRO ULTIMATE
 - **`[zb_auth]`** — unified Login + Sign Up on a single page (replaces Ultimate Member)

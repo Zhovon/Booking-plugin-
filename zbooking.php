@@ -2,8 +2,9 @@
 /**
  * Plugin Name: Zbooking
  * Plugin URI:  https://zhovon.com
+ * Update URI:  https://zhovon.com/zbooking
  * Description: Custom booking system integrated with WooCommerce. Supports multi-service selection, coupon codes, admin confirm/reject via email, and WooCommerce customer accounts.
- * Version:     2.4
+ * Version:     3.1
  * Author:      zhovon
  * Requires at least: 5.8
  * Requires PHP: 7.4
@@ -12,11 +13,13 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'ZB_VERSION', '2.4' );
+define( 'ZB_VERSION', '3.1' );
 define( 'ZB_PATH',    plugin_dir_path( __FILE__ ) );
 define( 'ZB_URL',     plugin_dir_url( __FILE__ ) );
 
 require_once ZB_PATH . 'includes/db-table.php';
+require_once ZB_PATH . 'includes/settings.php';
+require_once ZB_PATH . 'includes/calendar-sync.php';
 require_once ZB_PATH . 'includes/registration.php';
 require_once ZB_PATH . 'includes/booking-form.php';
 require_once ZB_PATH . 'includes/form-handler.php';
@@ -39,9 +42,33 @@ function zb_enqueue_assets() {
         [],
         ZB_VERSION
     );
+
+    global $post;
+    if ( $post instanceof WP_Post && has_shortcode( $post->post_content, 'zbooking' ) ) {
+        wp_enqueue_style(
+            'flatpickr',
+            'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css',
+            [],
+            '4.6.13'
+        );
+        wp_enqueue_script(
+            'flatpickr',
+            'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.js',
+            [],
+            '4.6.13',
+            true
+        );
+        wp_enqueue_script(
+            'flatpickr-da',
+            'https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/da.js',
+            [ 'flatpickr' ],
+            '4.6.13',
+            true
+        );
+    }
 }
 
-add_action( 'init', 'zb_remove_wc_cart_buttons' );
+add_action( 'wp', 'zb_remove_wc_cart_buttons' );
 function zb_remove_wc_cart_buttons() {
     if ( is_admin() ) {
         return;
@@ -49,16 +76,73 @@ function zb_remove_wc_cart_buttons() {
     remove_action( 'woocommerce_after_shop_loop_item',   'woocommerce_template_loop_add_to_cart', 10 );
     remove_action( 'woocommerce_single_product_summary', 'woocommerce_template_single_add_to_cart', 30 );
 
-    add_action( 'woocommerce_after_shop_loop_item',   'zb_booking_button_loop', 10 );
     add_action( 'woocommerce_single_product_summary', 'zb_booking_button_single', 30 );
 }
 
-function zb_booking_button_loop() {
-    global $product;
-    if ( ! $product ) return;
-    printf(
-        '<a href="%s" class="button alt">Book nu</a>',
-        esc_url( add_query_arg( 'p_id', $product->get_id(), site_url( '/bookings/' ) ) )
+add_filter( 'woocommerce_loop_add_to_cart_link', 'zb_replace_loop_add_to_cart_link', 20, 3 );
+
+function zb_get_product_booking_target_url( $product_id ) {
+    $booking_url = zb_get_booking_url( [ 'p_id' => absint( $product_id ) ] );
+
+    if ( is_user_logged_in() ) {
+        return $booking_url;
+    }
+
+    return zb_get_login_url( [ 'redirect_to' => $booking_url ] );
+}
+
+function zb_replace_loop_add_to_cart_link( $html, $product, $args ) {
+    if ( ! class_exists( 'WC_Product' ) || ! $product instanceof WC_Product ) {
+        return $html;
+    }
+
+    $target = esc_url( zb_get_product_booking_target_url( $product->get_id() ) );
+
+    $raw_classes = '';
+    if ( preg_match( '/class=("|\')(.*?)(\1)/i', (string) $html, $m ) ) {
+        $raw_classes = (string) $m[2];
+    } elseif ( ! empty( $args['class'] ) ) {
+        $raw_classes = (string) $args['class'];
+    }
+
+    $classes = preg_split( '/\s+/', trim( $raw_classes ) );
+    if ( ! is_array( $classes ) ) {
+        $classes = [];
+    }
+
+    $remove = [
+        'add_to_cart_button',
+        'ajax_add_to_cart',
+        'product_type_simple',
+        'product_type_variable',
+        'product_type_grouped',
+        'product_type_external',
+    ];
+
+    $classes = array_values( array_filter( $classes, static function ( $c ) use ( $remove ) {
+        return '' !== $c && ! in_array( $c, $remove, true );
+    } ) );
+
+    if ( ! in_array( 'button', $classes, true ) ) {
+        $classes[] = 'button';
+    }
+    $classes[] = 'zb-booking-btn-loop';
+
+    $safe_classes = implode(
+        ' ',
+        array_map(
+            static function ( $c ) {
+                return sanitize_html_class( $c );
+            },
+            $classes
+        )
+    );
+
+    return sprintf(
+        '<a href="%s" class="%s" data-zb-booking="1" rel="nofollow">%s</a>',
+        $target,
+        esc_attr( $safe_classes ),
+        esc_html__( 'Book nu', 'zbooking' )
     );
 }
 
@@ -66,12 +150,61 @@ function zb_booking_button_single() {
     global $product;
     if ( ! $product ) return;
     printf(
-        '<a href="%s" class="button alt" style="display:inline-block;margin-top:10px;">Book nu</a>',
-        esc_url( add_query_arg( 'p_id', $product->get_id(), site_url( '/bookings/' ) ) )
+        '<a href="%s" class="button alt zb-booking-single-btn" data-zb-booking="1" rel="nofollow">Book nu</a>',
+        esc_url( zb_get_product_booking_target_url( $product->get_id() ) )
     );
 }
 
+add_action( 'wp_head', 'zb_force_hide_single_add_to_cart', 99 );
+
+function zb_force_hide_single_add_to_cart() {
+    if ( is_admin() || ! function_exists( 'is_product' ) || ! is_product() ) {
+        return;
+    }
+    echo '<style>.single-product form.cart{display:none !important;}.single-product .zb-booking-single-btn{display:inline-flex;align-items:center;justify-content:center;margin-top:0;}</style>';
+}
+
+add_action( 'wp_footer', 'zb_booking_cta_click_guard', 99 );
+
+function zb_booking_cta_click_guard() {
+    if ( is_admin() ) {
+        return;
+    }
+    ?>
+    <script>
+    (function () {
+        document.addEventListener('click', function (e) {
+            var link = e.target.closest('a[data-zb-booking="1"]');
+            if (!link) return;
+            var href = link.getAttribute('href');
+            if (!href) return;
+            e.preventDefault();
+            window.location.href = href;
+        }, true);
+    })();
+    </script>
+    <?php
+}
+
 add_action( 'template_redirect', 'zb_force_nocache_on_booking_pages', 1 );
+
+add_action( 'template_redirect', 'zb_redirect_cart_like_booking_links', 2 );
+
+function zb_redirect_cart_like_booking_links() {
+    if ( is_admin() || empty( $_GET['p_id'] ) ) {
+        return;
+    }
+
+    if ( ! function_exists( 'is_cart' ) || ! function_exists( 'is_checkout' ) || ! function_exists( 'is_account_page' ) ) {
+        return;
+    }
+
+    if ( is_cart() || is_checkout() || is_account_page() ) {
+        $target = zb_get_product_booking_target_url( absint( $_GET['p_id'] ) );
+        wp_safe_redirect( $target );
+        exit;
+    }
+}
 
 function zb_force_nocache_on_booking_pages() {
     global $post;
@@ -79,7 +212,7 @@ function zb_force_nocache_on_booking_pages() {
         return;
     }
 
-    $protected_shortcodes = [ 'zbooking', 'zb_signup' ];
+    $protected_shortcodes = [ 'zbooking', 'zb_auth', 'zb_dashboard' ];
 
     foreach ( $protected_shortcodes as $sc ) {
         if ( has_shortcode( $post->post_content, $sc ) ) {
@@ -130,8 +263,4 @@ add_action( 'init', function() {
     exit;
 } );
 
-// Hide default WooCommerce buttons to focus on Zbooking
-add_action( 'init', function() {
-    remove_action( 'woocommerce_after_shop_loop_item', 'woocommerce_template_loop_add_to_cart', 10 );
-    remove_action( 'woocommerce_single_product_summary', 'woocommerce_template_single_add_to_cart', 30 );
-} );
+// Hide default WooCommerce buttons to focus on Zbooking.

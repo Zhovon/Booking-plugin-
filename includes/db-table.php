@@ -26,12 +26,19 @@ function zb_create_booking_table() {
         comments       TEXT,
         booking_date   DATE,
         booking_time   VARCHAR(10)            DEFAULT NULL,
+        duration_minutes SMALLINT     NOT NULL DEFAULT 60,
+        timeslot_start DATETIME                DEFAULT NULL,
+        timeslot_end   DATETIME                DEFAULT NULL,
+        outlook_event_id VARCHAR(191)          DEFAULT NULL,
+        google_event_id  VARCHAR(191)          DEFAULT NULL,
         status         VARCHAR(20)   NOT NULL DEFAULT 'pending',
         created_at     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY  (id),
         KEY user_id    (user_id),
         KEY status     (status),
-        KEY booking_date (booking_date)
+        KEY booking_date (booking_date),
+        KEY timeslot_start (timeslot_start),
+        KEY timeslot_end (timeslot_end)
     ) {$charset_collate};";
     dbDelta( $sql_bookings );
 
@@ -91,6 +98,11 @@ function zb_migrate_osf_data() {
                     'comments'       => sanitize_textarea_field( $row['comments'] ?? '' ),
                     'booking_date'   => sanitize_text_field( $row['booking_date'] ?? '' ),
                     'booking_time'   => sanitize_text_field( $row['booking_time'] ?? '' ),
+                    'duration_minutes' => absint( $row['duration_minutes'] ?? 60 ),
+                    'timeslot_start' => sanitize_text_field( $row['timeslot_start'] ?? '' ),
+                    'timeslot_end'   => sanitize_text_field( $row['timeslot_end'] ?? '' ),
+                    'outlook_event_id' => sanitize_text_field( $row['outlook_event_id'] ?? '' ),
+                    'google_event_id'  => sanitize_text_field( $row['google_event_id'] ?? '' ),
                     'status'         => sanitize_text_field( $row['status'] ?? 'pending' ),
                     'created_at'     => sanitize_text_field( $row['created_at'] ?? current_time('mysql') ),
                 ];

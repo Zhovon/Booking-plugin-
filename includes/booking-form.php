@@ -7,7 +7,7 @@ add_shortcode( 'zbooking', 'zb_booking_form' );
 function zb_booking_form() {
     if ( ! is_user_logged_in() ) {
         $current_url = home_url( add_query_arg( null, null ) );
-        wp_safe_redirect( site_url( '/login?redirect_to=' . rawurlencode( $current_url ) ) );
+        wp_safe_redirect( zb_get_login_url( [ 'redirect_to' => $current_url ] ) );
         exit;
     }
 
@@ -21,17 +21,29 @@ function zb_booking_form() {
     $meta_contact = get_user_meta( $user_id, 'contact_person', true );
     $meta_phone   = get_user_meta( $user_id, 'phone',          true );
     $meta_address = get_user_meta( $user_id, 'address',        true );
+    $billing_company = get_user_meta( $user_id, 'billing_company', true );
+    $billing_contact = get_user_meta( $user_id, 'billing_first_name', true );
+    $billing_phone   = get_user_meta( $user_id, 'billing_phone', true );
+    $billing_address = get_user_meta( $user_id, 'billing_address_1', true );
+
+    $profile_company = $meta_company ?: $billing_company;
+    $profile_contact = $meta_contact ?: $billing_contact ?: $current_user->display_name;
+    $profile_phone   = $meta_phone ?: $billing_phone;
+    $profile_address = $meta_address ?: $billing_address;
     $currency     = class_exists( 'WooCommerce' ) ? get_woocommerce_currency_symbol() : 'kr';
 
-    $initial_product_id    = absint( $_GET['p_id'] ?? 0 );
-    $initial_product_title = '';
-    $initial_product_price = 0;
+    $initial_product_id      = absint( $_GET['p_id'] ?? 0 );
+    $initial_product_title   = '';
+    $initial_product_price   = 0;
+    $initial_total_minutes   = 0;
+    $initial_services_hidden = '';
 
     if ( $initial_product_id && class_exists( 'WooCommerce' ) ) {
         $product = wc_get_product( $initial_product_id );
         if ( $product ) {
             $initial_product_title = $product->get_name();
-            $initial_product_price = (float) $product->get_price();
+            $initial_product_price = (float) wc_get_price_to_display( $product );
+            $initial_services_hidden = $initial_product_title;
         }
     }
 
@@ -52,10 +64,11 @@ function zb_booking_form() {
 
         $status_map = [
             'pending'  => [ 'label' => 'Afventer bekræftelse', 'color' => '#b45309' ],
-            'Accepted' => [ 'label' => 'Bekræftet',            'color' => '#15803d' ],
-            'Rejected' => [ 'label' => 'Afvist',               'color' => '#b91c1c' ],
+            'accepted' => [ 'label' => 'Bekræftet',            'color' => '#15803d' ],
+            'rejected' => [ 'label' => 'Afvist',               'color' => '#b91c1c' ],
         ];
-        $st = $status_map[ $booking->status ] ?? [ 'label' => esc_html( $booking->status ), 'color' => '#555' ];
+        $normalized_status = function_exists( 'zb_normalize_booking_status' ) ? zb_normalize_booking_status( $booking->status ) : strtolower( (string) $booking->status );
+        $st = $status_map[ $normalized_status ] ?? [ 'label' => esc_html( $booking->status ), 'color' => '#555' ];
         ?>
         <div class="zb-confirm-wrap">
             <div class="zb-confirm-icon">✅</div>
@@ -118,7 +131,7 @@ function zb_booking_form() {
                     <label for="zb_company">Company Name</label>
                     <input id="zb_company" class="change_update" type="text"
                            name="company_name" autocomplete="organization"
-                           value="<?php echo esc_attr( $meta_company ); ?>"
+                           value="<?php echo esc_attr( $profile_company ); ?>"
                            placeholder="Enter company name" required>
                 </div>
 
@@ -126,7 +139,7 @@ function zb_booking_form() {
                     <label for="zb_contact">Contact Person</label>
                     <input id="zb_contact" class="change_update" type="text"
                            name="contact_person" autocomplete="name"
-                           value="<?php echo esc_attr( $meta_contact ); ?>"
+                           value="<?php echo esc_attr( $profile_contact ); ?>"
                            placeholder="Full Name" required>
                 </div>
 
@@ -142,7 +155,7 @@ function zb_booking_form() {
                     <label for="zb_phone">Phone</label>
                     <input id="zb_phone" type="tel"
                            name="phone" autocomplete="tel"
-                           value="<?php echo esc_attr( $meta_phone ); ?>"
+                           value="<?php echo esc_attr( $profile_phone ); ?>"
                            placeholder="+45 12345678" required>
                 </div>
 
@@ -150,7 +163,7 @@ function zb_booking_form() {
                     <label for="zb_address">Address <span class="zb-required">*</span></label>
                     <input id="zb_address" class="change_update" type="text"
                            name="address" autocomplete="off"
-                           value="<?php echo esc_attr( $meta_address ); ?>"
+                           value="<?php echo esc_attr( $profile_address ); ?>"
                            placeholder="Danmark | 1610 ......" required>
                 </div>
 
@@ -177,6 +190,7 @@ function zb_booking_form() {
                         ?>
                         <div class="zb-service-item"
                              title="<?php echo $title; ?>"
+                                data-title="<?php echo esc_attr( $title ); ?>"
                              data-price="<?php echo $price; ?>"
                              data-time="<?php echo $time; ?>">
                             <span class="svc-title"><?php echo $title; ?></span>
@@ -208,23 +222,29 @@ function zb_booking_form() {
 
                 <div class="form-group">
                     <label for="zb_date">Select Date <span class="zb-required">*</span></label>
-                    <div class="input-with-icon">
-                        <input id="zb_date" type="date" name="booking_date"
-                               min="<?php echo esc_attr( gmdate( 'Y-m-d', strtotime( '+1 day' ) ) ); ?>"
-                               required>
+                    <div class="input-with-icon zb-calendar-wrap" id="zbCalendarWrap">
+                        <input id="zb_date" type="text" name="booking_date"
+                               data-min-date="<?php echo esc_attr( wp_date( 'Y-m-d', strtotime( '+1 day', current_time( 'timestamp' ) ) ) ); ?>"
+                               placeholder="Select an available date"
+                               required readonly>
                     </div>
+                    <div class="zb-calendar-status" id="zbCalendarStatus" aria-live="polite">Loading available dates...</div>
+                    <small class="zb-time-help">Only dates with availability are selectable.</small>
                 </div>
 
                 <div class="form-group">
                     <label for="zb_time">Select Time <span class="zb-required">*</span></label>
                     <div class="input-with-icon">
-                        <input id="zb_time" type="time" name="booking_time" required>
+                        <select id="zb_time" name="booking_time" required>
+                            <option value="">Select date first</option>
+                        </select>
                     </div>
+                    <small class="zb-time-help">Time slots are in <?php echo esc_html( zb_get_slot_interval_minutes() ); ?>-minute intervals.</small>
                 </div>
 
-                <input type="hidden" name="services"           class="zb_selected_services" value="">
-                <input type="hidden" name="price"              class="zb_selected_price"    value="">
-                <input type="hidden" name="total_minutes"      class="zb_total_minutes"     value="">
+                <input type="hidden" name="services"           class="zb_selected_services" value="<?php echo esc_attr( $initial_services_hidden ); ?>">
+                <input type="hidden" name="price"              class="zb_selected_price"    value="<?php echo esc_attr( $initial_product_price ); ?>">
+                <input type="hidden" name="total_minutes"      class="zb_total_minutes"     value="<?php echo esc_attr( $initial_total_minutes ); ?>">
                 <input type="hidden" name="active_coupon_code" class="zb_active_coupon"     value="">
                 <input type="hidden" name="coupon_price"       class="zb_coupon_price"      value="">
                 <input type="hidden" name="booked_by"          value="<?php echo esc_attr( $current_user->display_name ); ?>">
@@ -236,26 +256,32 @@ function zb_booking_form() {
             <h2>Booking Overview</h2>
 
             <div class="overview-header">
-                <div class="overview-name company_name"><?php echo esc_html( $meta_company ?: 'Company Name' ); ?></div>
-                <div class="overview-name contact_person"><?php echo esc_html( $meta_contact ?: $current_user->display_name ); ?></div>
+                <div class="overview-name company_name"><?php echo esc_html( $profile_company ?: 'Company Name' ); ?></div>
+                <div class="overview-name contact_person"><?php echo esc_html( $profile_contact ?: $current_user->display_name ); ?></div>
             </div>
 
             <div class="overview-section">
                 <div class="overview-label">Property Address</div>
-                <div class="overview-value address"><?php echo esc_html( $meta_address ?: 'Aarhusvej, 4300 ...' ); ?></div>
+                <div class="overview-value address"><?php echo esc_html( $profile_address ?: 'Aarhusvej, 4300 ...' ); ?></div>
             </div>
 
             <div class="overview-section">
                 <div class="overview-label">Selected Services</div>
                 <div class="overview-services">
-                    <!-- JS will fill this -->
+                    <?php if ( $initial_product_title ) : ?>
+                    <div class="overview-service-item zb-svc-item" data-title="<?php echo esc_attr( $initial_product_title ); ?>">
+                        <div class="check-icon"><svg viewBox="0 0 10 10" fill="none"><path d="M2 5l2.5 2.5L8 3" stroke="#4a7c59" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+                        <span class="service-name"><?php echo esc_html( $initial_product_title ); ?></span>
+                        <span class="service-meta-mini"><?php echo esc_html( number_format( $initial_product_price, 0, ',', '.' ) ); ?><?php echo esc_html( $currency ); ?> · 0 min</span>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
 
             <div class="overview-footer">
                 <div class="total-row">
                     <span class="total-label">Total</span>
-                    <span class="total-amount" data-raw="0">0<?php echo esc_html( $currency ); ?></span>
+                    <span class="total-amount" data-raw="<?php echo esc_attr( $initial_product_price ); ?>"><?php echo esc_html( number_format( $initial_product_price, 0, ',', '.' ) ); ?><?php echo esc_html( $currency ); ?></span>
                 </div>
 
                 <div class="coupon-applied" style="display:none;">
@@ -291,8 +317,12 @@ function zb_booking_form() {
         var currency    = '<?php echo esc_js( $currency ); ?>';
         var ajaxUrl     = '<?php echo esc_js( admin_url( 'admin-ajax.php' ) ); ?>';
         var zbNonce     = '<?php echo esc_js( wp_create_nonce( 'zb_coupon_nonce' ) ); ?>';
+        var zbSlotNonce = '<?php echo esc_js( wp_create_nonce( 'zb_slots_nonce' ) ); ?>';
+        var slotStep    = <?php echo (int) zb_get_slot_interval_minutes(); ?>;
+        var defaultDur  = <?php echo (int) zb_get_default_duration_minutes(); ?>;
         var totalPrice  = 0;
         var totalMins   = 0;
+        var calendar    = null;
 
         var initP      = '<?php echo esc_js( $initial_product_title ); ?>';
         var initPrice  = <?php echo (float) $initial_product_price; ?>;
@@ -312,6 +342,12 @@ function zb_booking_form() {
         var hiddenSvcs     = document.querySelector('.zb_selected_services');
         var hiddenPrice    = document.querySelector('.zb_selected_price');
         var hiddenMins     = document.querySelector('.zb_total_minutes');
+        var dateInput      = document.getElementById('zb_date');
+        var timeSelect     = document.getElementById('zb_time');
+        var calendarWrap   = document.getElementById('zbCalendarWrap');
+        var calendarStatus = document.getElementById('zbCalendarStatus');
+        var minDate        = dateInput ? (dateInput.dataset.minDate || '') : '';
+        var toastHost      = null;
 
         function fmt(m) {
             if (m < 60) return m + ' min';
@@ -322,23 +358,280 @@ function zb_booking_form() {
             return p.toLocaleString('da-DK', {minimumFractionDigits:0}) + currency;
         }
 
+        function ensureToastHost() {
+            if (toastHost) return toastHost;
+            toastHost = document.createElement('div');
+            toastHost.className = 'zb-toast-host';
+            document.body.appendChild(toastHost);
+            return toastHost;
+        }
+
+        function zbNotify(type, title, body) {
+            var host = ensureToastHost();
+            var toast = document.createElement('div');
+            toast.className = 'zb-toast zb-toast--' + (type || 'info');
+            toast.innerHTML = '<div class="zb-toast-title"></div><div class="zb-toast-body"></div>';
+            toast.querySelector('.zb-toast-title').textContent = title || 'Notice';
+            toast.querySelector('.zb-toast-body').textContent = body || '';
+            host.appendChild(toast);
+
+            setTimeout(function () {
+                toast.classList.add('is-leaving');
+                setTimeout(function () {
+                    if (toast.parentNode) toast.parentNode.removeChild(toast);
+                }, 220);
+            }, 3200);
+        }
+
+        function fetchJsonWithTimeout(url, options, timeoutMs) {
+            var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            var timer = null;
+            var requestOptions = options || {};
+
+            if (controller) {
+                requestOptions = Object.assign({}, requestOptions, { signal: controller.signal });
+                timer = setTimeout(function () {
+                    controller.abort();
+                }, timeoutMs || 12000);
+            }
+
+            return fetch(url, requestOptions)
+                .then(function (response) {
+                    if (timer) {
+                        clearTimeout(timer);
+                    }
+                    return response.json();
+                })
+                .catch(function (error) {
+                    if (timer) {
+                        clearTimeout(timer);
+                    }
+                    throw error;
+                });
+        }
+
         function updateTotals() {
             totalAmountEl.dataset.raw  = totalPrice;
             totalAmountEl.textContent  = fmtPrice(totalPrice);
             hiddenPrice.value          = totalPrice;
-            hiddenMins.value           = totalMins;
+            hiddenMins.value           = totalMins || defaultDur;
             var names = Array.from(overviewSvcs.querySelectorAll('.service-name'))
                              .map(function (s) { return s.textContent; });
             hiddenSvcs.value = names.join(', ');
             zbResetCoupon();
+            loadAvailableDates();
+        }
+
+        function hydrateInitialTotalsFromDom() {
+            var rawPrice = parseFloat((hiddenPrice && hiddenPrice.value) ? hiddenPrice.value : (totalAmountEl ? totalAmountEl.dataset.raw : '0')) || 0;
+            var rawMins  = parseInt((hiddenMins && hiddenMins.value) ? hiddenMins.value : '0', 10) || 0;
+            totalPrice = rawPrice;
+            totalMins  = rawMins;
+            if (totalAmountEl) {
+                totalAmountEl.dataset.raw = String(totalPrice);
+                totalAmountEl.textContent = fmtPrice(totalPrice);
+            }
+            if (hiddenPrice) hiddenPrice.value = String(totalPrice);
+            if (hiddenMins) hiddenMins.value = String(totalMins);
+        }
+
+        function getDuration() {
+            var mins = parseInt(hiddenMins.value || '0', 10) || 0;
+            if (mins < slotStep) mins = defaultDur;
+            if (mins % slotStep !== 0) mins = Math.ceil(mins / slotStep) * slotStep;
+            return mins;
+        }
+
+        function resetSlotSelect(msg) {
+            if (!timeSelect) return;
+            timeSelect.innerHTML = '';
+            var opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = msg || 'No available slots';
+            timeSelect.appendChild(opt);
+            timeSelect.disabled = true;
+        }
+
+        function setCalendarLoading(isLoading) {
+            if (!calendarWrap) return;
+            calendarWrap.classList.toggle('zb-loading', !!isLoading);
+        }
+
+        function setCalendarStatus(text, kind) {
+            if (!calendarStatus) return;
+            calendarStatus.textContent = text || '';
+            calendarStatus.classList.remove('is-info', 'is-error', 'is-ok');
+            calendarStatus.classList.add(kind || 'is-info');
+        }
+
+        function loadSlots() {
+            if (!dateInput || !timeSelect) return;
+            var bookingDate = (dateInput.value || '').trim();
+            if (!bookingDate) {
+                resetSlotSelect('Select date first');
+                return;
+            }
+
+            resetSlotSelect('Loading slots...');
+
+            var fd = new FormData();
+            fd.append('action', 'zb_get_available_slots');
+            fd.append('nonce', zbSlotNonce);
+            fd.append('booking_date', bookingDate);
+            fd.append('duration_minutes', String(getDuration()));
+
+            fetchJsonWithTimeout(ajaxUrl, { method: 'POST', body: fd }, 12000)
+                .then(function (res) {
+                    if (!res.success || !res.data || !Array.isArray(res.data.slots)) {
+                        resetSlotSelect('No available slots');
+                        zbNotify('error', 'Time slots unavailable', 'Could not fetch available times. Please try another date.');
+                        return;
+                    }
+
+                    timeSelect.innerHTML = '';
+                    var first = document.createElement('option');
+                    first.value = '';
+                    first.textContent = 'Select time';
+                    timeSelect.appendChild(first);
+
+                    res.data.slots.forEach(function (slot) {
+                        var opt = document.createElement('option');
+                        opt.value = slot;
+                        opt.textContent = slot;
+                        timeSelect.appendChild(opt);
+                    });
+
+                    timeSelect.disabled = res.data.slots.length === 0;
+                    if (res.data.slots.length === 0) {
+                        first.textContent = 'No available slots';
+                    }
+                })
+                .catch(function () {
+                    resetSlotSelect('Unable to load slots');
+                    zbNotify('error', 'Network issue', 'Unable to load time slots right now.');
+                });
+        }
+
+        function ensureDateStillAvailable(availableDates) {
+            if (!dateInput) return;
+            var selected = (dateInput.value || '').trim();
+            if (!selected) return;
+            if (availableDates.indexOf(selected) !== -1) return;
+
+            dateInput.value = '';
+            if (calendar) {
+                calendar.clear();
+            }
+            resetSlotSelect('Select date first');
+        }
+
+        function initCalendar(availableDates, restrictToAvailableDates) {
+            if (!dateInput) return;
+
+            var lockToAvailability = restrictToAvailableDates !== false;
+
+            if (typeof window.flatpickr !== 'function') {
+                dateInput.readOnly = false;
+                dateInput.type = 'date';
+                if (minDate) {
+                    dateInput.min = minDate;
+                }
+                setCalendarStatus('Native date picker active.', 'is-info');
+                return;
+            }
+
+            if (calendar) {
+                calendar.destroy();
+                calendar = null;
+            }
+
+            var calendarOptions = {
+                dateFormat: 'Y-m-d',
+                minDate: minDate || 'tomorrow',
+                disableMobile: true,
+                monthSelectorType: 'static',
+                inline: true,
+                locale: (window.flatpickr && window.flatpickr.l10ns && window.flatpickr.l10ns.da) ? 'da' : 'default',
+                onDayCreate: function(dObj, dStr, fp, dayElem) {
+                    if (dayElem.classList.contains('flatpickr-disabled')) {
+                        dayElem.setAttribute('title', 'Ikke tilgaengelig');
+                    }
+                },
+                onChange: function(selectedDates, dateStr) {
+                    dateInput.value = dateStr || '';
+                    loadSlots();
+                }
+            };
+
+            if (lockToAvailability) {
+                calendarOptions.enable = availableDates;
+            }
+
+            calendar = window.flatpickr(dateInput, calendarOptions);
+
+            if (dateInput.value) {
+                calendar.setDate(dateInput.value, false, 'Y-m-d');
+            }
+        }
+
+        function loadAvailableDates() {
+            if (!dateInput) return;
+
+            setCalendarLoading(true);
+            setCalendarStatus('Loading available dates...', 'is-info');
+
+            var fd = new FormData();
+            fd.append('action', 'zb_get_available_dates');
+            fd.append('nonce', zbSlotNonce);
+            fd.append('duration_minutes', String(getDuration()));
+
+            fetchJsonWithTimeout(ajaxUrl, { method: 'POST', body: fd }, 12000)
+                .then(function (res) {
+                    setCalendarLoading(false);
+                    if (!res.success || !res.data || !Array.isArray(res.data.dates)) {
+                        initCalendar([], false);
+                        ensureDateStillAvailable([]);
+                        setCalendarStatus('Availability check failed. Dates are temporarily open; final validation still happens on submit.', 'is-error');
+                        zbNotify('error', 'Calendar not available', 'Availability could not be loaded, so the date picker is open temporarily.');
+                        return;
+                    }
+
+                    var dates = res.data.dates;
+
+                    if (dates.length) {
+                        initCalendar(dates);
+                        ensureDateStillAvailable(dates);
+                        setCalendarStatus(dates.length + ' available dates in the next 45 days.', 'is-ok');
+                    } else {
+                        initCalendar([], false);
+                        setCalendarStatus('No prefiltered dates were found. You can still choose a future date and it will be checked on submit.', 'is-error');
+                        zbNotify('info', 'No dates prefiltered', 'The calendar is open so you can still choose a future date; availability is checked again on submit.');
+                    }
+
+                    if (dateInput.value) {
+                        loadSlots();
+                    } else {
+                        resetSlotSelect('Select date first');
+                    }
+                })
+                .catch(function () {
+                    setCalendarLoading(false);
+                    initCalendar([], false);
+                    setCalendarStatus('Availability check failed. Dates are temporarily open; final validation still happens on submit.', 'is-error');
+                    resetSlotSelect('Select date first');
+                    zbNotify('error', 'Calendar load failed', 'Availability could not be loaded, so the date picker is open temporarily.');
+                });
         }
 
         function addServiceToOverview(title, price, time) {
-            var key = title.replace(/"/g, '\\"');
-            var existing = overviewSvcs.querySelector('.zb-svc-item[data-title="' + key + '"]');
+            var existing = Array.from(overviewSvcs.querySelectorAll('.zb-svc-item')).find(function (node) {
+                return (node.dataset.title || '') === title;
+            });
             if (existing) {
                 existing.remove();
                 totalPrice -= price; totalMins -= time;
+                if (totalPrice < 0) totalPrice = 0;
+                if (totalMins < 0) totalMins = 0;
                 return false;
             } else {
                 var item = document.createElement('div');
@@ -357,9 +650,10 @@ function zb_booking_form() {
             svcList.addEventListener('click', function (e) {
                 var svc = e.target.closest('.zb-service-item');
                 if (!svc) return;
-                var title = svc.getAttribute('title');
+                var title = (svc.dataset.title || svc.getAttribute('title') || '').trim();
                 var price = parseFloat(svc.dataset.price) || 0;
                 var time  = parseInt(svc.dataset.time, 10) || 0;
+                if (!title) return;
                 if (addServiceToOverview(title, price, time)) {
                     svc.classList.add('zb-selected');
                 } else {
@@ -369,10 +663,14 @@ function zb_booking_form() {
             });
         }
 
-        document.querySelector('.btn-add-service-ui').addEventListener('click', function() {
-            var wrap = document.querySelector('.custom-service-wrap');
-            wrap.style.display = wrap.style.display === 'none' ? 'block' : 'none';
-        });
+        var addServiceBtn = document.querySelector('.btn-add-service-ui');
+        if (addServiceBtn) {
+            addServiceBtn.addEventListener('click', function() {
+                var wrap = document.querySelector('.custom-service-wrap');
+                if (!wrap) return;
+                wrap.style.display = wrap.style.display === 'none' ? 'block' : 'none';
+            });
+        }
 
         window.zbAddService = function () {
             var inp = document.querySelector('.zb_custom_service_input');
@@ -384,14 +682,26 @@ function zb_booking_form() {
             document.querySelector('.custom-service-wrap').style.display = 'none';
         };
 
-        if (initP) {
-            var match = Array.from(document.querySelectorAll('.zb-service-item')).find(function(i){ return i.getAttribute('title') === initP; });
+        hydrateInitialTotalsFromDom();
+
+        if (initP && !hiddenSvcs.value.trim()) {
+            var match = Array.from(document.querySelectorAll('.zb-service-item')).find(function(i){ return (i.dataset.title || i.getAttribute('title') || '') === initP; });
             if (match) {
                 match.click();
             } else {
                 addServiceToOverview(initP, initPrice, 0);
                 updateTotals();
             }
+        }
+
+        // Safety: if URL has p_id and product prefill did not apply by name matching, force base product total.
+        if (!hiddenSvcs.value.trim() && initP && initPrice > 0) {
+            addServiceToOverview(initP, initPrice, 0);
+            updateTotals();
+        }
+
+        if (dateInput) {
+            dateInput.addEventListener('change', loadSlots);
         }
 
         var couponInput   = document.getElementById('zbCouponInput');
@@ -434,22 +744,35 @@ function zb_booking_form() {
                         couponDiv.style.display  = 'block';
                         activeCoupon.value = code;
                         couponPrice.value  = np;
-                    } else { alert(res.data.message || 'Error'); }
+                        zbNotify('success', 'Coupon applied', 'Discount has been applied to this booking.');
+                    } else {
+                        zbNotify('error', 'Coupon invalid', (res.data && res.data.message) ? res.data.message : 'Invalid or expired coupon.');
+                    }
                 });
             });
         }
 
-        document.querySelector('.zb-remove-coupon').addEventListener('click', zbResetCoupon);
+        var removeCouponBtn = document.querySelector('.zb-remove-coupon');
+        if (removeCouponBtn) {
+            removeCouponBtn.addEventListener('click', zbResetCoupon);
+        }
 
         document.getElementById('zb-booking-form').addEventListener('submit', function (e) {
             if (!hiddenSvcs.value.trim()) {
                 e.preventDefault();
-                alert('Please select at least one service.');
+                zbNotify('error', 'Missing service', 'Please select at least one service before booking.');
+                return;
+            }
+            if (!timeSelect || !timeSelect.value) {
+                e.preventDefault();
+                zbNotify('error', 'Missing time', 'Please select an available time slot.');
                 return;
             }
             var btn = document.getElementById('zbSubmitBtn');
             btn.disabled = true; btn.textContent = 'Processing...';
         });
+
+        loadAvailableDates();
     })();
     </script>
     <?php
@@ -502,4 +825,127 @@ function zb_apply_coupon() {
         'new_price' => round( $new_price, 2 ),
         'discount'  => round( $price - $new_price, 2 ),
     ] );
+}
+
+add_action( 'wp_ajax_zb_get_available_slots', 'zb_get_available_slots' );
+add_action( 'wp_ajax_zb_get_available_dates', 'zb_get_available_dates' );
+
+function zb_collect_available_slots_for_date( $booking_date, $duration, $busy_intervals = null ) {
+    $step     = zb_get_slot_interval_minutes();
+    $duration = absint( $duration );
+    if ( $duration < $step ) {
+        $duration = zb_get_default_duration_minutes();
+    }
+    if ( 0 !== $duration % $step ) {
+        $duration = (int) ceil( $duration / $step ) * $step;
+    }
+
+    $tz        = wp_timezone();
+    $day_start = DateTimeImmutable::createFromFormat( 'Y-m-d H:i', $booking_date . ' ' . zb_normalize_hhmm( (string) zb_get_setting( 'business_start' ), '08:00' ), $tz );
+    $day_end   = DateTimeImmutable::createFromFormat( 'Y-m-d H:i', $booking_date . ' ' . zb_normalize_hhmm( (string) zb_get_setting( 'business_end' ), '18:00' ), $tz );
+
+    if ( ! $day_start || ! $day_end || $day_end <= $day_start ) {
+        return [];
+    }
+
+    if ( null === $busy_intervals && function_exists( 'zb_calendar_get_busy_intervals' ) && ! empty( zb_calendar_connected_providers() ) ) {
+        $day_start_utc = $day_start->setTimezone( new DateTimeZone( 'UTC' ) )->getTimestamp();
+        $day_end_utc   = $day_end->setTimezone( new DateTimeZone( 'UTC' ) )->getTimestamp();
+        $busy_intervals = zb_calendar_get_busy_intervals( $day_start_utc, $day_end_utc );
+    }
+
+    if ( ! is_array( $busy_intervals ) ) {
+        $busy_intervals = [];
+    }
+
+    $slots = [];
+    for ( $cursor = $day_start; $cursor < $day_end; $cursor = $cursor->modify( '+' . $step . ' minutes' ) ) {
+        $candidate_end = $cursor->modify( '+' . $duration . ' minutes' );
+        if ( $candidate_end > $day_end ) {
+            break;
+        }
+
+        $booking_time = $cursor->format( 'H:i' );
+        $bounds       = function_exists( 'zb_build_slot_bounds' ) ? zb_build_slot_bounds( $booking_date, $booking_time, $duration ) : false;
+        if ( false === $bounds ) {
+            continue;
+        }
+
+        if ( function_exists( 'zb_has_booking_conflict' ) && zb_has_booking_conflict( $bounds['start_mysql'], $bounds['end_mysql'], $booking_date, $booking_time ) ) {
+            continue;
+        }
+
+        $outlook_conflict = false;
+        foreach ( $busy_intervals as $busy ) {
+            $busy_start = (int) ( $busy['start'] ?? 0 );
+            $busy_end   = (int) ( $busy['end'] ?? 0 );
+            if ( $busy_start < $bounds['end_utc'] && $busy_end > $bounds['start_utc'] ) {
+                $outlook_conflict = true;
+                break;
+            }
+        }
+
+        if ( $outlook_conflict ) {
+            continue;
+        }
+
+        $slots[] = $booking_time;
+    }
+
+    return $slots;
+}
+
+function zb_get_available_dates() {
+    if ( ! check_ajax_referer( 'zb_slots_nonce', 'nonce', false ) ) {
+        wp_send_json_error( [ 'message' => 'Security check failed.' ] );
+    }
+
+    if ( ! is_user_logged_in() ) {
+        wp_send_json_error( [ 'message' => 'Login required.' ] );
+    }
+
+    $duration = absint( $_POST['duration_minutes'] ?? 0 );
+    if ( $duration < zb_get_slot_interval_minutes() ) {
+        $duration = zb_get_default_duration_minutes();
+    }
+
+    $today = strtotime( wp_date( 'Y-m-d' ) . ' 00:00:00' );
+    $from  = strtotime( '+1 day', $today );
+    $to    = strtotime( '+45 days', $today );
+
+    $preloaded_busy = null;
+    if ( function_exists( 'zb_calendar_get_busy_intervals' ) && ! empty( zb_calendar_connected_providers() ) ) {
+        $preloaded_busy = zb_calendar_get_busy_intervals( $from, strtotime( '+1 day', $to ) );
+    }
+
+    $available_dates = [];
+    for ( $cursor = $from; $cursor <= $to; $cursor = strtotime( '+1 day', $cursor ) ) {
+        $date  = wp_date( 'Y-m-d', $cursor );
+        $slots = zb_collect_available_slots_for_date( $date, $duration, $preloaded_busy );
+        if ( ! empty( $slots ) ) {
+            $available_dates[] = $date;
+        }
+    }
+
+    wp_send_json_success( [ 'dates' => $available_dates ] );
+}
+
+function zb_get_available_slots() {
+    if ( ! check_ajax_referer( 'zb_slots_nonce', 'nonce', false ) ) {
+        wp_send_json_error( [ 'message' => 'Security check failed.' ] );
+    }
+
+    if ( ! is_user_logged_in() ) {
+        wp_send_json_error( [ 'message' => 'Login required.' ] );
+    }
+
+    $booking_date = sanitize_text_field( $_POST['booking_date'] ?? '' );
+    if ( ! function_exists( 'zb_is_valid_booking_date' ) || ! zb_is_valid_booking_date( $booking_date ) ) {
+        wp_send_json_error( [ 'message' => 'Invalid booking date.' ] );
+    }
+
+    $duration = absint( $_POST['duration_minutes'] ?? 0 );
+    $slots = zb_collect_available_slots_for_date( $booking_date, $duration );
+
+    wp_send_json_success( [ 'slots' => $slots ] );
 }

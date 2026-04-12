@@ -32,7 +32,7 @@ function zb_handle_dashboard_updates() {
                 update_user_meta( $user_id, 'zb_avatar_id', $attach_id );
             }
         }
-        $dashboard_url = site_url( '/my-account-2/' );
+        $dashboard_url = zb_get_dashboard_url();
         wp_safe_redirect( add_query_arg( [ 'zb_tab' => 'profile', 'zb_msg' => 'profile_updated' ], $dashboard_url ) );
         exit;
     }
@@ -44,7 +44,7 @@ function zb_handle_dashboard_updates() {
         }
         wp_set_password( $_POST['new_password'], $user_id );
         wp_set_auth_cookie( $user_id );
-        $dashboard_url = site_url( '/my-account-2/' );
+        $dashboard_url = zb_get_dashboard_url();
         wp_safe_redirect( add_query_arg( [ 'zb_tab' => 'security', 'zb_msg' => 'pwd_updated' ], $dashboard_url ) );
         exit;
     }
@@ -67,7 +67,7 @@ function zb_handle_login() {
         exit;
     }
 
-    wp_safe_redirect( site_url( '/bookings/' ) );
+    wp_safe_redirect( zb_get_booking_url() );
     exit;
 }
 
@@ -85,22 +85,22 @@ function zb_handle_signup() {
     $password = $_POST['password'] ?? '';
 
     if ( ! is_email( $email ) ) {
-        wp_safe_redirect( add_query_arg( 'zb_error', 'invalid_email', wp_get_referer() ?: site_url( '/opret-konto/' ) ) );
+        wp_safe_redirect( add_query_arg( 'zb_error', 'invalid_email', wp_get_referer() ?: zb_get_login_url( [ 'action' => 'signup' ] ) ) );
         exit;
     }
     if ( strlen( $password ) < 8 ) {
-        wp_safe_redirect( add_query_arg( 'zb_error', 'weak_password', wp_get_referer() ?: site_url( '/opret-konto/' ) ) );
+        wp_safe_redirect( add_query_arg( 'zb_error', 'weak_password', wp_get_referer() ?: zb_get_login_url( [ 'action' => 'signup' ] ) ) );
         exit;
     }
     if ( email_exists( $email ) ) {
-        wp_safe_redirect( add_query_arg( 'zb_error', 'email_exists', wp_get_referer() ?: site_url( '/opret-konto/' ) ) );
+        wp_safe_redirect( add_query_arg( 'zb_error', 'email_exists', wp_get_referer() ?: zb_get_login_url( [ 'action' => 'signup' ] ) ) );
         exit;
     }
 
     $user_id = wp_create_user( $email, $password, $email );
 
     if ( is_wp_error( $user_id ) ) {
-        wp_safe_redirect( add_query_arg( 'zb_error', 'generic', wp_get_referer() ?: site_url( '/opret-konto/' ) ) );
+        wp_safe_redirect( add_query_arg( 'zb_error', 'generic', wp_get_referer() ?: zb_get_login_url( [ 'action' => 'signup' ] ) ) );
         exit;
     }
 
@@ -142,7 +142,7 @@ function zb_handle_signup() {
     wp_set_current_user( $user_id );
     wp_set_auth_cookie( $user_id, true );
 
-    wp_safe_redirect( site_url( '/bookings/' ) );
+    wp_safe_redirect( zb_get_booking_url() );
     exit;
 }
 
@@ -150,7 +150,7 @@ add_shortcode( 'zb_auth', 'zb_unified_auth_form' );
 
 function zb_unified_auth_form() {
     if ( is_user_logged_in() ) {
-        return '<p class="zb-alert">Du er allerede logget ind. <a href="'.esc_url(site_url('/bookings/')).'">Gå til Dashboard</a></p>';
+        return '<p class="zb-alert">Du er allerede logget ind. <a href="' . esc_url( zb_get_booking_url() ) . '">Gå til Dashboard</a></p>';
     }
 
     $mode = ( isset($_GET['action']) && $_GET['action'] === 'signup' ) ? 'signup' : 'login';

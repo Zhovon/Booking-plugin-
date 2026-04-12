@@ -4,13 +4,135 @@ defined( 'ABSPATH' ) || exit;
 
 add_action( 'init', 'zb_handle_booking' );
 
+function zb_normalize_booking_status( $status ) {
+    $status = strtolower( trim( (string) $status ) );
+
+    if ( 'accepted' === $status ) {
+        return 'accepted';
+    }
+
+    if ( 'rejected' === $status ) {
+        return 'rejected';
+    }
+
+    return 'pending';
+}
+
+function zb_is_status_accepted( $status ) {
+    return 'accepted' === zb_normalize_booking_status( $status );
+}
+
+function zb_is_status_rejected( $status ) {
+    return 'rejected' === zb_normalize_booking_status( $status );
+}
+
+function zb_get_active_booking_statuses_sql() {
+    return [ 'pending', 'accepted', 'Accepted' ];
+}
+
+function zb_is_valid_booking_date( $date ) {
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ) {
+        return false;
+    }
+
+    $ts = strtotime( $date . ' 00:00:00' );
+    if ( ! $ts ) {
+        return false;
+    }
+
+    $today = strtotime( wp_date( 'Y-m-d' ) . ' 00:00:00' );
+    return $ts > $today;
+}
+
+function zb_is_valid_slot_time( $time ) {
+    if ( ! preg_match( '/^([01]\d|2[0-3]):([0-5]\d)$/', $time, $m ) ) {
+        return false;
+    }
+
+    $minutes = (int) $m[2];
+    $step    = zb_get_slot_interval_minutes();
+
+    return 0 === ( $minutes % $step );
+}
+
+function zb_build_slot_bounds( $date, $time, $duration_minutes ) {
+    $tz = wp_timezone();
+
+    $start = DateTimeImmutable::createFromFormat( 'Y-m-d H:i', $date . ' ' . $time, $tz );
+    if ( ! $start ) {
+        return false;
+    }
+
+    $duration = max( zb_get_slot_interval_minutes(), absint( $duration_minutes ) );
+    $end      = $start->modify( '+' . $duration . ' minutes' );
+
+    return [
+        'start_local' => $start,
+        'end_local'   => $end,
+        'start_mysql' => $start->format( 'Y-m-d H:i:s' ),
+        'end_mysql'   => $end->format( 'Y-m-d H:i:s' ),
+        'start_utc'   => $start->setTimezone( new DateTimeZone( 'UTC' ) )->getTimestamp(),
+        'end_utc'     => $end->setTimezone( new DateTimeZone( 'UTC' ) )->getTimestamp(),
+    ];
+}
+
+function zb_within_business_hours( DateTimeImmutable $start, DateTimeImmutable $end ) {
+    $start_hhmm = zb_normalize_hhmm( (string) zb_get_setting( 'business_start' ), '08:00' );
+    $end_hhmm   = zb_normalize_hhmm( (string) zb_get_setting( 'business_end' ), '18:00' );
+
+    $window_start = DateTimeImmutable::createFromFormat( 'Y-m-d H:i', $start->format( 'Y-m-d' ) . ' ' . $start_hhmm, $start->getTimezone() );
+    $window_end   = DateTimeImmutable::createFromFormat( 'Y-m-d H:i', $start->format( 'Y-m-d' ) . ' ' . $end_hhmm, $start->getTimezone() );
+
+    if ( ! $window_start || ! $window_end ) {
+        return true;
+    }
+
+    return $start >= $window_start && $end <= $window_end;
+}
+
+function zb_has_booking_conflict( $start_mysql, $end_mysql, $booking_date, $booking_time, $exclude_id = 0 ) {
+    global $wpdb;
+
+    $table = $wpdb->prefix . 'zb_bookings';
+
+    $active_statuses = zb_get_active_booking_statuses_sql();
+    $in_placeholders = implode( ',', array_fill( 0, count( $active_statuses ), '%s' ) );
+
+    $sql = "SELECT id FROM {$table}
+            WHERE status IN ({$in_placeholders})
+              AND id <> %d
+              AND (
+                (timeslot_start IS NOT NULL AND timeslot_end IS NOT NULL AND timeslot_start < %s AND timeslot_end > %s)
+                OR
+                (timeslot_start IS NULL AND booking_date = %s AND booking_time = %s)
+              )
+            LIMIT 1";
+
+    $prepare_args = array_merge(
+        $active_statuses,
+        [
+            absint( $exclude_id ),
+            $end_mysql,
+            $start_mysql,
+            $booking_date,
+            $booking_time,
+        ]
+    );
+
+    $conflict_id = $wpdb->get_var(
+        $wpdb->prepare( $sql, ...$prepare_args )
+    );
+
+    return ! empty( $conflict_id );
+}
+
 function zb_handle_booking() {
     if ( ! isset( $_POST['zb_submit_booking'] ) ) {
         return;
     }
 
     if ( ! is_user_logged_in() ) {
-        wp_safe_redirect( site_url( '/login?redirect_to=' . rawurlencode( wp_get_referer() ?: '/' ) ) );
+        wp_safe_redirect( zb_get_login_url( [ 'redirect_to' => ( wp_get_referer() ?: home_url( '/' ) ) ] ) );
         exit;
     }
 
@@ -48,13 +170,31 @@ function zb_handle_booking() {
     $booking_date   = sanitize_text_field( $_POST['booking_date'] );
     $booking_time   = sanitize_text_field( $_POST['booking_time'] );
 
-    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $booking_date ) ||
-         ! strtotime( $booking_date ) ||
-         strtotime( $booking_date ) <= current_time( 'timestamp' ) ) {
+    if ( ! zb_is_valid_booking_date( $booking_date ) ) {
         wp_die( 'Ugyldig dato. Vælg en fremtidig dato.', 'Fejl', [ 'back_link' => true ] );
     }
-    if ( ! preg_match( '/^\d{2}:\d{2}$/', $booking_time ) ) {
-        wp_die( 'Ugyldigt tidspunkt.', 'Fejl', [ 'back_link' => true ] );
+    if ( ! zb_is_valid_slot_time( $booking_time ) ) {
+        wp_die( 'Ugyldigt tidspunkt. Tid skal være i 15-minutters intervaller.', 'Fejl', [ 'back_link' => true ] );
+    }
+
+    $duration_minutes = absint( $_POST['total_minutes'] ?? 0 );
+    if ( $duration_minutes < zb_get_slot_interval_minutes() ) {
+        $duration_minutes = zb_get_default_duration_minutes();
+    }
+    if ( 0 !== $duration_minutes % zb_get_slot_interval_minutes() ) {
+        $duration_minutes = (int) ceil( $duration_minutes / zb_get_slot_interval_minutes() ) * zb_get_slot_interval_minutes();
+    }
+
+    $bounds = zb_build_slot_bounds( $booking_date, $booking_time, $duration_minutes );
+    if ( false === $bounds ) {
+        wp_die( 'Kunne ikke fortolke dato/tid.', 'Fejl', [ 'back_link' => true ] );
+    }
+    if ( ! zb_within_business_hours( $bounds['start_local'], $bounds['end_local'] ) ) {
+        wp_die( 'Valgt tidspunkt ligger uden for åbningstider.', 'Fejl', [ 'back_link' => true ] );
+    }
+
+    if ( function_exists( 'zb_calendar_has_conflict' ) && ! empty( zb_calendar_connected_providers() ) && zb_calendar_has_conflict( $bounds['start_utc'], $bounds['end_utc'] ) ) {
+        wp_die( 'Tidsrummet er ikke længere ledigt i kalenderen.', 'Tidskonflikt', [ 'back_link' => true ] );
     }
 
     $raw_price      = floatval( $_POST['price'] ?? 0 );
@@ -102,14 +242,36 @@ function zb_handle_booking() {
         'services'       => $services,
         'booking_date'   => $booking_date,
         'booking_time'   => $booking_time,
+        'duration_minutes' => $duration_minutes,
+        'timeslot_start' => $bounds['start_mysql'],
+        'timeslot_end'   => $bounds['end_mysql'],
         'price'          => (string) $raw_price,
         'coupon'         => $final_coupon_code,
         'coupon_price'   => $final_coupon_price,
         'status'         => 'pending',
     ];
-    $formats = [ '%d','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s' ];
+    $formats = [ '%d','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%d','%s','%s','%s','%s','%s','%s' ];
+
+    $inserted = false;
+    $locked   = false;
+
+    // Lock table briefly to avoid race-condition double bookings.
+    if ( false !== $wpdb->query( "LOCK TABLES {$table} WRITE" ) ) {
+        $locked = true;
+    }
+
+    if ( zb_has_booking_conflict( $bounds['start_mysql'], $bounds['end_mysql'], $booking_date, $booking_time ) ) {
+        if ( $locked ) {
+            $wpdb->query( 'UNLOCK TABLES' );
+        }
+        wp_die( 'Tidsrummet er netop blevet booket af en anden kunde. Vælg venligst et andet tidspunkt.', 'Tidskonflikt', [ 'back_link' => true ] );
+    }
 
     $inserted = $wpdb->insert( $table, $data, $formats );
+
+    if ( $locked ) {
+        $wpdb->query( 'UNLOCK TABLES' );
+    }
 
     if ( ! $inserted ) {
         error_log( 'Zbooking Database Error: ' . $wpdb->last_error );
@@ -123,13 +285,14 @@ function zb_handle_booking() {
     $booking_id = $wpdb->insert_id;
     zb_send_booking_emails( $booking_id, $data );
 
-    wp_safe_redirect( add_query_arg( 'booking_id', $booking_id, get_permalink() ) );
+    wp_safe_redirect( zb_get_booking_url( [ 'booking_id' => $booking_id ] ) );
     exit;
 }
 
 function zb_generate_ics( $booking_id, $data ) {
-    $start = date( 'Ymd\THis', strtotime( $data['booking_date'] . ' ' . $data['booking_time'] ) );
-    $end   = date( 'Ymd\THis', strtotime( $data['booking_date'] . ' ' . $data['booking_time'] . ' +1 hour' ) );
+    $duration = max( zb_get_slot_interval_minutes(), absint( $data['duration_minutes'] ?? zb_get_default_duration_minutes() ) );
+    $start    = date( 'Ymd\THis', strtotime( $data['booking_date'] . ' ' . $data['booking_time'] ) );
+    $end      = date( 'Ymd\THis', strtotime( $data['booking_date'] . ' ' . $data['booking_time'] . ' +' . $duration . ' minutes' ) );
     $addr  = str_replace( ',', '', $data['address'] );
     
     $ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Zbooking//NONSGML v1.0//EN\r\nBEGIN:VEVENT\r\n";
@@ -162,11 +325,11 @@ function zb_send_booking_emails( $booking_id, $data ) {
     $sep       = str_repeat( '═', 42 );
 
     $confirm_url = wp_nonce_url(
-        admin_url( 'admin-post.php?action=zb_booking_action&booking_id=' . $booking_id . '&status=Accepted' ),
+        admin_url( 'admin-post.php?action=zb_booking_action&booking_id=' . $booking_id . '&status=accepted' ),
         'zb_booking_action_' . $booking_id
     );
     $reject_url = wp_nonce_url(
-        admin_url( 'admin-post.php?action=zb_booking_action&booking_id=' . $booking_id . '&status=Rejected' ),
+        admin_url( 'admin-post.php?action=zb_booking_action&booking_id=' . $booking_id . '&status=rejected' ),
         'zb_booking_action_' . $booking_id
     );
 

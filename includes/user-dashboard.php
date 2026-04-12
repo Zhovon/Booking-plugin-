@@ -49,7 +49,7 @@ function zb_handle_reschedule_request() {
     $body    .= "\nManage bookings: " . admin_url( 'admin.php?page=zb-show-bookings' );
 
     wp_mail( get_option( 'admin_email' ), $subject, $body );
-    wp_safe_redirect( add_query_arg( 'zb_msg', 'reschedule_sent', site_url( '/my-account-2/' ) ) );
+    wp_safe_redirect( add_query_arg( 'zb_msg', 'reschedule_sent', zb_get_dashboard_url() ) );
     exit;
 }
 
@@ -127,8 +127,8 @@ function zb_render_customer_bookings_table() {
     $currency  = class_exists( 'WooCommerce' ) ? get_woocommerce_currency_symbol() : 'kr';
     $st_labels = [
         'pending'  => '<span style="color:#b45309;">Afventer bekræftelse</span>',
-        'Accepted' => '<span style="color:#15803d;font-weight:600;">&#10003; Bekræftet</span>',
-        'Rejected' => '<span style="color:#b91c1c;">&#10007; Afvist</span>',
+        'accepted' => '<span style="color:#15803d;font-weight:600;">&#10003; Bekræftet</span>',
+        'rejected' => '<span style="color:#b91c1c;">&#10007; Afvist</span>',
     ];
 
     echo '<h2 style="font-size:20px;margin-bottom:16px;">Mine bookinger</h2>';
@@ -139,7 +139,8 @@ function zb_render_customer_bookings_table() {
         echo '<thead><tr><th>ID</th><th>Adresse</th><th>Ydelser</th><th>Dato / Tid</th><th>Pris ekskl. moms</th><th>Status</th><th>Handling</th></tr></thead>';
         echo '<tbody>';
         foreach ( $bookings as $b ) {
-            $st  = $st_labels[ $b->status ] ?? esc_html( $b->status );
+            $normalized_status = function_exists( 'zb_normalize_booking_status' ) ? zb_normalize_booking_status( $b->status ) : strtolower( (string) $b->status );
+            $st  = $st_labels[ $normalized_status ] ?? esc_html( $b->status );
             $nonce_url = wp_nonce_url(
                 add_query_arg( 'zb_reschedule', $b->id, wp_get_referer() ?: get_permalink() ),
                 'zb_reschedule_' . $b->id
@@ -158,18 +159,18 @@ function zb_render_customer_bookings_table() {
             echo '</td>';
             echo '<td>' . wp_kses( $st, [ 'span' => [ 'style' => [] ] ] ) . '</td>';
             echo '<td>';
-            if ( 'pending' === $b->status || 'Accepted' === $b->status ) {
+            if ( 'pending' === $normalized_status || 'accepted' === $normalized_status ) {
                 echo '<a href="' . esc_url( $nonce_url ) . '" style="font-size:12px;color:#4a7c59;text-decoration:none;font-weight:600;margin-right:12px;">Anmod om ny tid</a>';
             }
-            if ( 'Accepted' === $b->status ) {
-                echo '<a href="' . esc_url( home_url( '?zb_invoice=' . $b->id ) ) . '" target="_blank" style="font-size:12px;color:#4a7c59;text-decoration:none;font-weight:600;">Vis faktura</a>';
+            if ( 'accepted' === $normalized_status ) {
+                echo '<a href="' . esc_url( add_query_arg( 'zb_invoice', absint( $b->id ), home_url( '/' ) ) ) . '" target="_blank" style="font-size:12px;color:#4a7c59;text-decoration:none;font-weight:600;">Vis faktura</a>';
             }
             echo '</td>';
             echo '</tr>';
         }
         echo '</tbody></table></div>';
     } else {
-        echo '<p style="color:#888;">Ingen bookinger fundet. <a href="' . esc_url( site_url( '/bookings/' ) ) . '">Lav din første booking &rarr;</a></p>';
+        echo '<p style="color:#888;">Ingen bookinger fundet. <a href="' . esc_url( zb_get_booking_url() ) . '">Lav din første booking &rarr;</a></p>';
     }
 }
 
@@ -220,7 +221,7 @@ function zb_render_admin_bookings_table() {
                         data-email="<?php echo esc_attr( $b->email ); ?>"
                         data-address="<?php echo esc_attr( $b->address ); ?>"
                         data-services="<?php echo esc_attr( $b->services ); ?>"
-                        data-status="<?php echo esc_attr( $b->status ); ?>">
+                        data-status="<?php echo esc_attr( function_exists( 'zb_normalize_booking_status' ) ? zb_normalize_booking_status( $b->status ) : strtolower( (string) $b->status ) ); ?>">
                         <td>#<?php echo absint( $b->id ); ?></td>
                         <td><?php echo esc_html( $b->company_name ); ?></td>
                         <td><?php echo esc_html( $b->contact_person ); ?></td>
@@ -234,7 +235,7 @@ function zb_render_admin_bookings_table() {
                                 <br><small style="color:#15803d;">Rabat: <?php echo esc_html( $b->coupon_price ); ?> <?php echo esc_html( $currency ); ?></small>
                             <?php endif; ?>
                         </td>
-                        <td class="zb-status-cell"><?php echo esc_html( $b->status ); ?></td>
+                        <td class="zb-status-cell"><?php echo esc_html( function_exists( 'zb_normalize_booking_status' ) ? zb_normalize_booking_status( $b->status ) : strtolower( (string) $b->status ) ); ?></td>
                         <td><button class="zb-edit-btn button button-small">Rediger</button></td>
                     </tr>
                 <?php endforeach; ?>
@@ -258,8 +259,8 @@ function zb_render_admin_bookings_table() {
                         <label for="zb_modal_status" style="font-weight:600;float:none;">Status:</label><br>
                         <select name="status" id="zb_modal_status" style="width:100%;margin-top:6px;padding:8px;">
                             <option value="pending">Afventer bekræftelse</option>
-                            <option value="Accepted">Bekræftet</option>
-                            <option value="Rejected">Afvist</option>
+                            <option value="accepted">Bekræftet</option>
+                            <option value="rejected">Afvist</option>
                         </select>
                     </p>
                     <div style="display:flex;gap:8px;margin-top:16px;">
@@ -327,6 +328,7 @@ function zb_conditionally_enqueue_admin_js( $hook ) {
     if ( 'toplevel_page_zb-show-bookings' !== $hook ) {
         return;
     }
+    wp_enqueue_style( 'zb-admin-style', ZB_URL . 'assets/zb-admin.css', [], ZB_VERSION );
     wp_enqueue_script( 'jquery' );
     wp_enqueue_script( 'zb-admin-js', ZB_URL . 'assets/zb-admin.js', [ 'jquery' ], ZB_VERSION, true );
     wp_localize_script( 'zb-admin-js', 'zb_ajax', [
@@ -346,8 +348,10 @@ function zb_ajax_update_status() {
     }
 
     $id      = absint( $_POST['booking_id'] );
-    $status  = sanitize_text_field( $_POST['status'] );
-    $allowed = [ 'pending', 'Accepted', 'Rejected' ];
+    $status  = function_exists( 'zb_normalize_booking_status' )
+        ? zb_normalize_booking_status( sanitize_text_field( $_POST['status'] ?? '' ) )
+        : sanitize_text_field( $_POST['status'] );
+    $allowed = [ 'pending', 'accepted', 'rejected' ];
 
     if ( ! in_array( $status, $allowed, true ) ) {
         wp_send_json_error( 'Ugyldig status.' );
@@ -365,6 +369,10 @@ function zb_ajax_update_status() {
 
     if ( 'pending' !== $status && function_exists( 'zb_send_status_email' ) ) {
         zb_send_status_email( $booking, $status );
+    }
+
+    if ( function_exists( 'zb_is_status_accepted' ) && zb_is_status_accepted( $status ) && function_exists( 'zb_calendar_create_events_for_booking' ) ) {
+        zb_calendar_create_events_for_booking( $id, (array) $booking );
     }
 
     wp_send_json_success( [ 'status' => $status ] );

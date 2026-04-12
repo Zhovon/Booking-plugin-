@@ -1,5 +1,30 @@
 jQuery(document).ready(function ($) {
     'use strict';
+
+    var toastHost = null;
+
+    function ensureToastHost() {
+        if (toastHost) return toastHost;
+        toastHost = $('<div class="zb-admin-toast-host" />');
+        $('body').append(toastHost);
+        return toastHost;
+    }
+
+    function zbAdminNotify(type, title, body) {
+        var $host = ensureToastHost();
+        var $toast = $('<div class="zb-admin-toast zb-admin-toast--' + (type || 'info') + '"><div class="zb-admin-toast-title"></div><div class="zb-admin-toast-body"></div></div>');
+        $toast.find('.zb-admin-toast-title').text(title || 'Notice');
+        $toast.find('.zb-admin-toast-body').text(body || '');
+        $host.append($toast);
+
+        setTimeout(function () {
+            $toast.addClass('is-leaving');
+            setTimeout(function () {
+                $toast.remove();
+            }, 220);
+        }, 3000);
+    }
+
     $(document).on('click', '.zb-edit-btn', function () {
         var row = $(this).closest('tr');
         $('#zb_bid').val(row.data('id'));
@@ -37,12 +62,13 @@ jQuery(document).ready(function ($) {
                     .find('.zb-status-cell')
                     .text(newStatus);
                 $('#zbModal').removeClass('zb-open');
+                zbAdminNotify('success', 'Status opdateret', 'Bookingstatus blev gemt korrekt.');
             } else {
-                alert('Opdatering mislykkedes: ' + (response.data || 'Ukendt fejl'));
+                zbAdminNotify('error', 'Opdatering mislykkedes', String(response.data || 'Ukendt fejl'));
             }
         }).fail(function () {
             $btn.prop('disabled', false).text('Gem status');
-            alert('Netværksfejl. Prøv igen.');
+            zbAdminNotify('error', 'Netvaerksfejl', 'Kunne ikke opdatere bookingstatus. Proev igen.');
         });
     });
 });

@@ -100,6 +100,7 @@ input[type="email"],
 input[type="tel"],
 input[type="date"],
 input[type="time"],
+select,
 textarea {
   width: 100%;
   padding: 12px 16px;
@@ -117,6 +118,107 @@ input:focus, textarea:focus {
   border-color: var(--zb-primary);
   box-shadow: 0 0 0 4px rgba(74, 124, 89, 0.1);
   outline: none;
+}
+
+select:focus {
+  background: #fff;
+  border-color: var(--zb-primary);
+  box-shadow: 0 0 0 4px rgba(74, 124, 89, 0.1);
+  outline: none;
+}
+
+.zb-time-help {
+  color: var(--zb-text-light);
+  font-size: 12px;
+}
+
+.zb-calendar-wrap {
+  position: relative;
+}
+
+.zb-calendar-wrap.zb-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(240,244,242,0.6) 25%, rgba(255,255,255,0.95) 50%, rgba(240,244,242,0.6) 75%);
+  background-size: 200% 100%;
+  animation: zbShimmer 1.2s infinite;
+  pointer-events: none;
+}
+
+.zb-calendar-status {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.zb-calendar-status.is-info {
+  color: #475569;
+}
+
+.zb-calendar-status.is-ok {
+  color: #166534;
+}
+
+.zb-calendar-status.is-error {
+  color: #b91c1c;
+}
+
+.flatpickr-calendar {
+  border: 1px solid var(--zb-border);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.flatpickr-months {
+  background: linear-gradient(135deg, #f7faf8 0%, #eef4f1 100%);
+}
+
+.flatpickr-current-month {
+  font-weight: 700;
+}
+
+.flatpickr-weekdays {
+  background: #f8fafc;
+}
+
+.flatpickr-weekday {
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.flatpickr-day {
+  border-radius: 8px;
+}
+
+.flatpickr-day:hover {
+  background: #ecf3ee;
+  border-color: #ecf3ee;
+}
+
+.flatpickr-day.today {
+  border-color: #a5c4b0;
+}
+
+.flatpickr-day.selected,
+.flatpickr-day.startRange,
+.flatpickr-day.endRange {
+  background: var(--zb-primary);
+  border-color: var(--zb-primary);
+  color: #fff;
+}
+
+.flatpickr-day.flatpickr-disabled,
+.flatpickr-day.flatpickr-disabled:hover {
+  color: #c7cdd4;
+  background: #fbfcfd;
+}
+
+@keyframes zbShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .services-list {
@@ -357,6 +459,63 @@ input:focus, textarea:focus {
 }
 
 .notification-note strong { color: #6b7280; }
+
+.zb-toast-host {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.zb-toast {
+  min-width: 280px;
+  max-width: 360px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-left-width: 5px;
+  border-radius: 12px;
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.14);
+  padding: 12px 14px;
+  transform: translateY(12px);
+  opacity: 0;
+  animation: zbToastIn .2s ease forwards;
+  pointer-events: auto;
+}
+
+.zb-toast--success { border-left-color: #15803d; }
+.zb-toast--error { border-left-color: #b91c1c; }
+.zb-toast--info { border-left-color: #2563eb; }
+
+.zb-toast-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 3px;
+}
+
+.zb-toast-body {
+  font-size: 13px;
+  color: #4b5563;
+  line-height: 1.45;
+}
+
+.zb-toast.is-leaving {
+  animation: zbToastOut .2s ease forwards;
+}
+
+@keyframes zbToastIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes zbToastOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(12px); }
+}
 
 .zb-remove-coupon {
     display: block;
