@@ -358,12 +358,17 @@ function zb_calendar_api_request( $provider, $method, $path, $args = [] ) {
 
 function zb_calendar_get_profile( $provider ) {
     if ( 'google' === $provider ) {
+        $token = zb_calendar_get_access_token( $provider );
+        if ( is_wp_error( $token ) ) {
+            return $token;
+        }
+
         $response = wp_remote_get(
             'https://openidconnect.googleapis.com/v1/userinfo',
             [
                 'timeout' => 20,
                 'headers' => [
-                    'Authorization' => 'Bearer ' . (string) zb_calendar_get_access_token( $provider ),
+                    'Authorization' => 'Bearer ' . (string) $token,
                 ],
             ]
         );
