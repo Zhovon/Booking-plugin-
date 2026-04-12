@@ -405,12 +405,22 @@ function zb_calendar_store_connection( $provider, $token_data ) {
     $profile = zb_calendar_get_profile( $provider );
     $existing = zb_calendar_get_connection( $provider );
 
+    $profile_email = '';
+    $profile_name  = '';
+
+    if ( is_wp_error( $profile ) ) {
+        error_log( 'Zbooking calendar profile lookup failed: ' . $profile->get_error_message() );
+    } elseif ( is_array( $profile ) ) {
+        $profile_email = (string) ( $profile['email'] ?? '' );
+        $profile_name  = (string) ( $profile['name'] ?? '' );
+    }
+
     $connection = [
         'access_token'  => (string) ( $token_data['access_token'] ?? '' ),
         'refresh_token'  => ! empty( $token_data['refresh_token'] ) ? (string) $token_data['refresh_token'] : (string) ( $existing['refresh_token'] ?? '' ),
         'expires_at'    => current_time( 'timestamp' ) + max( 300, absint( $token_data['expires_in'] ?? 3600 ) - 120 ),
-        'email'         => is_array( $profile ) ? (string) ( $profile['email'] ?? '' ) : '',
-        'name'          => is_array( $profile ) ? (string) ( $profile['name'] ?? '' ) : '',
+        'email'         => $profile_email,
+        'name'          => $profile_name,
         'connected_at'  => current_time( 'mysql' ),
     ];
 

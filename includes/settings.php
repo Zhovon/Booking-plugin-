@@ -20,6 +20,9 @@ function zb_get_settings_defaults() {
         'google_enabled'        => 0,
         'google_client_id'      => '',
         'google_client_secret'  => '',
+        'license_token'         => '',
+        'license_secret_key'    => 'aspirine',
+        'license_verify_url'    => 'https://zhovon.com/api/zbooking/license/verify',
     ];
 }
 
@@ -148,4 +151,111 @@ function zb_get_default_duration_minutes() {
     }
 
     return $duration;
+}
+
+function zb_get_total_bookings_count() {
+    global $wpdb;
+
+    $table = $wpdb->prefix . 'zb_bookings';
+    $count = $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+
+    return absint( $count );
+}
+
+function zb_get_license_status( $force_refresh = false ) {
+    $cache_key = 'zb_license_status_v1';
+
+    if ( ! $force_refresh ) {
+        $cached = get_transient( $cache_key );
+        if ( is_array( $cached ) && isset( $cached['valid'] ) ) {
+            return $cached;
+        }
+    }
+
+    $token = trim( (string) zb_get_setting( 'license_token' ) );
+    $secret = trim( (string) zb_get_setting( 'license_secret_key' ) );
+    $url   = trim( (string) zb_get_setting( 'license_verify_url' ) );
+
+    if ( '' === $token ) {
+        $status = [
+            'valid'   => false,
+            'message' => 'No license token configured.',
+            'mode'    => 'demo',
+        ];
+        set_transient( $cache_key, $status, HOUR_IN_SECONDS );
+        return $status;
+    }
+
+    if ( '' === $url ) {
+        $status = [
+            'valid'   => false,
+            'message' => 'No verification URL configured.',
+            'mode'    => 'demo',
+        ];
+        set_transient( $cache_key, $status, HOUR_IN_SECONDS );
+        return $status;
+    }
+
+    $response = wp_remote_post(
+        esc_url_raw( $url ),
+        [
+            'timeout' => 12,
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'Accept'       => 'application/json',
+            ],
+            'body'    => wp_json_encode(
+                [
+                    'token'      => $token,
+                    'secret_key' => $secret ?: 'aspirine',
+                    'domain'     => home_url(),
+                    'plugin'     => 'zbooking',
+                    'plugin_ver' => defined( 'ZB_VERSION' ) ? ZB_VERSION : '',
+                ]
+            ),
+        ]
+    );
+
+    if ( is_wp_error( $response ) ) {
+        $status = [
+            'valid'   => false,
+            'message' => 'License check failed: ' . $response->get_error_message(),
+            'mode'    => 'demo',
+        ];
+        set_transient( $cache_key, $status, HOUR_IN_SECONDS );
+        return $status;
+    }
+
+    $code = (int) wp_remote_retrieve_response_code( $response );
+    $body = wp_remote_retrieve_body( $response );
+    $json = json_decode( $body, true );
+
+    if ( $code < 200 || $code >= 300 || ! is_array( $json ) ) {
+        $status = [
+            'valid'   => false,
+            'message' => 'License server rejected the request.',
+            'mode'    => 'demo',
+        ];
+        set_transient( $cache_key, $status, HOUR_IN_SECONDS );
+        return $status;
+    }
+
+    $is_valid = ! empty( $json['valid'] );
+    $message  = isset( $json['message'] ) ? (string) $json['message'] : ( $is_valid ? 'License active.' : 'License not valid.' );
+
+    $status = [
+        'valid'      => $is_valid,
+        'message'    => $message,
+        'mode'       => $is_valid ? 'licensed' : 'demo',
+        'expires_at' => isset( $json['expires_at'] ) ? sanitize_text_field( (string) $json['expires_at'] ) : '',
+    ];
+
+    set_transient( $cache_key, $status, $is_valid ? 12 * HOUR_IN_SECONDS : HOUR_IN_SECONDS );
+
+    return $status;
+}
+
+function zb_is_license_valid() {
+    $status = zb_get_license_status();
+    return ! empty( $status['valid'] );
 }

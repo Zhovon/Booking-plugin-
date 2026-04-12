@@ -20,12 +20,11 @@
    - Slot interval (recommended: 15)
    - Default duration (recommended: 60)
    - Business hours (start/end)
-3. Optional Outlook sync:
-   - Enable Outlook integration
-   - Add Tenant ID
-   - Add Client ID
-   - Add Client Secret
-   - Add mailbox user email or user ID
+3. Calendar sync setup:
+   - Enable Outlook sync and/or Google sync
+   - Save the OAuth app credentials in the Advanced App Setup section
+   - Register the callback URL shown on the settings page in the provider app
+   - Use the connect action on the settings page to authorize the admin calendar
 4. Save settings and refresh Permalinks once.
 
 ## Booking Flow
@@ -35,7 +34,7 @@
 3. Plugin loads only available time slots for that date.
 4. Customer submits booking request.
 5. Admin confirms or rejects booking.
-6. If confirmed and Outlook is enabled, event is created in Outlook.
+6. If confirmed and calendar sync is enabled, event is created in the connected Outlook or Google calendar.
 
 ## Double Booking Prevention
 
@@ -63,6 +62,12 @@ This prevents same-time booking by different users and duplicate booking by the 
 3. Enable Outlook only after Graph app permissions are fully granted.
 4. Review pending bookings daily to avoid stale request queue.
 5. Backup database before major plugin updates.
+
+## Customer Dashboard
+
+- Customers can view their bookings from the dashboard page created with the `[zb_dashboard]` shortcode.
+- From the booking list, they can request a new time through the reschedule action.
+- The admin can then review the request and update the booking status.
 
 ## Troubleshooting
 

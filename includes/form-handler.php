@@ -141,6 +141,20 @@ function zb_handle_booking() {
         wp_die( 'Sikkerhedstjek mislykkedes. Gå tilbage og prøv igen.', 'Fejl', [ 'back_link' => true ] );
     }
 
+    // Licensing gate: keep plugin usable in demo mode for first 3 bookings.
+    if ( function_exists( 'zb_is_license_valid' ) && ! zb_is_license_valid() ) {
+        $demo_limit = 3;
+        $count      = function_exists( 'zb_get_total_bookings_count' ) ? zb_get_total_bookings_count() : 0;
+
+        if ( $count >= $demo_limit ) {
+            wp_die(
+                'Demo-grænsen er nået (3 bookinger). Kontakt site-administratoren for fuld adgang.',
+                'Demo-grænse nået',
+                [ 'back_link' => true ]
+            );
+        }
+    }
+
     $required = [
         'company_name'   => 'Firmanavn',
         'contact_person' => 'Kontaktperson',
