@@ -10,6 +10,13 @@
 3. Go to **WP Admin → Zbooking → Settings** and set your slugs to match those pages.
 4. Go to **WP Admin → Products → Booking Services** and add service items with duration and price.
 
+## Login and Logout Behavior
+
+- The login slug is the main header entry point for auth.
+- Logged-out visitors see the login/sign-up form on that slug.
+- Logged-in visitors are redirected to the dashboard instead of seeing the login form again.
+- The same slug can be used for a header button that switches to Log ud when the user is signed in.
+
 ## Admin Setup Checklist
 
 1. Set slugs:
@@ -27,6 +34,11 @@
    - Use the connect action on the settings page to authorize the admin calendar
 4. Save settings and refresh Permalinks once.
 
+## Pricing Display
+
+- Booking totals now use a normalized currency symbol.
+- The plugin no longer prints raw currency HTML entities in the booking form or emails.
+
 ## Booking Flow
 
 1. Customer selects services.
@@ -35,6 +47,8 @@
 4. Customer submits booking request.
 5. Admin confirms or rejects booking.
 6. If confirmed and calendar sync is enabled, event is created in the connected Outlook or Google calendar.
+7. The admin inbox receives a copy of the booking mail and the calendar attachment.
+8. If the booking is rescheduled, both admin and customer receive the updated details.
 
 ## Double Booking Prevention
 
@@ -67,7 +81,13 @@ This prevents same-time booking by different users and duplicate booking by the 
 
 - Customers can view their bookings from the dashboard page created with the `[zb_dashboard]` shortcode.
 - From the booking list, they can request a new time through the reschedule action.
-- The admin can then review the request and update the booking status.
+- The admin can then review the request and update the booking date, time, and status.
+- Customers can also reschedule from the email links in booking notifications.
+
+## Invoices
+
+- The invoice page is opened from the booking link in the dashboard or email.
+- The invoice link is signed so the customer can open it from email without logging in again.
 
 ## Troubleshooting
 

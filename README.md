@@ -43,14 +43,14 @@ Zbooking is a custom booking management system built for **homefoto.dk** — a p
 | Page Title           | Slug            | Shortcode         | Notes |
 |----------------------|-----------------|-------------------|-------|
 | Book nu / Bookings   | `/bookings/`    | `[zbooking]`      | The main booking form |
-| Login / Opret konto  | `/login/`       | `[zb_auth]`       | Combined login + signup on one page |
+| Login / Opret konto  | `/login/`       | `[zb_auth]`       | Combined login + signup on one page. Logged-in users are redirected to the dashboard and the same slug can act as Log ud in the header. |
 | Min konto            | `/min-konto/`   | `[zb_dashboard]`  | Customer portal (bookings, profile, password) |
 
 > These are default slugs. You can change them in **WP Admin → Zbooking → Settings** for each website.
 
 > All pages are automatically protected from page caching (WP Rocket, LiteSpeed, W3TC).
 
-> **After deactivating Ultimate Member:** Point your login URL to `/login/` and your account URL to `/min-konto/`.
+> **After deactivating Ultimate Member:** Point your login URL to `/login/` and your account URL to `/min-konto/`. The login slug is also used for the header logout action when the user is already signed in.
 
 ---
 
@@ -64,6 +64,8 @@ Renders the full multi-step booking form for logged-in customers.
 
 **Behaviour:**
 - Not logged in → redirected to your configured login slug with `redirect_to` parameter.
+- Logged in → redirected away from the login page to the dashboard, so customers do not keep seeing a login form after signing in.
+- The same login slug can be reused for a header button that becomes Log ud when a user is already authenticated.
 - Logged in → form pre-filled from saved account data.
 - After submission → confirmation card shown with booking details and status.
 
@@ -86,7 +88,7 @@ Renders the full multi-step booking form for logged-in customers.
 
 **After submission:**
 1. Booking saved to `wp_zb_bookings` with status `pending`
-2. Admin receives an HTML email with one-click **Bekræft** / **Afvis** buttons + `.ics` calendar file
+2. Admin receives an HTML email with one-click **Bekræft** / **Afvis** buttons + `.ics` calendar file, and the admin inbox also gets a copy of the booking mail
 3. Customer receives a Danish acknowledgement email
 4. Booking collisions are blocked server-side (same user and different users)
 
@@ -134,7 +136,7 @@ Full **Customer Portal** with three tabs. Replaces the need for Ultimate Member 
 
 **Admin view:** When an Administrator visits the `[zb_dashboard]` page, they see the full admin bookings table instead of the customer portal.
 
-**Invoice security:** Invoices are only accessible to the booking owner or an administrator. Direct URL access by other users is blocked.
+**Invoice security:** Invoices are accessible to the booking owner, an administrator, or a signed email link. Direct URL access by other users is blocked.
 
 ---
 
@@ -171,9 +173,12 @@ Navigate to **WP Admin → Zbooking** to see a full table of all bookings with:
 
 **Editing a booking status:**
 1. Click **Rediger** on any row
-2. Change the status in the dropdown
-3. Click **Gem status**
-4. An email is automatically sent to the customer on `Accepted` or `Rejected`
+2. Change the date and time if the booking needs to be rescheduled
+3. Change the status in the dropdown
+4. Click **Gem ændringer**
+5. An email is automatically sent to the customer on `Accepted` or `Rejected`
+
+The admin edit modal also updates the calendar event when the booking is rescheduled.
 
 ---
 
@@ -256,6 +261,11 @@ Zbooking now enforces availability in two layers:
 This blocks double booking for both same and different users.
 
 ---
+
+## Pricing Display
+
+- Booking totals now use a normalized currency symbol helper so the UI does not render raw HTML entities like `&#2547;&nbsp;`.
+- The same clean currency formatting is used on the booking form, dashboard, admin table, invoice page, and booking emails.
 
 ## Outlook Integration (Microsoft Graph)
 

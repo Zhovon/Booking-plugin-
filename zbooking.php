@@ -190,6 +190,38 @@ add_action( 'template_redirect', 'zb_force_nocache_on_booking_pages', 1 );
 
 add_action( 'template_redirect', 'zb_redirect_cart_like_booking_links', 2 );
 
+add_filter( 'wp_nav_menu_objects', 'zb_swap_login_menu_item_for_logout', 20, 2 );
+
+function zb_swap_login_menu_item_for_logout( $items, $args ) {
+    if ( ! is_user_logged_in() ) {
+        return $items;
+    }
+
+    $login_slug = trim( (string) zb_get_setting( 'login_slug' ), '/' );
+    if ( '' === $login_slug ) {
+        return $items;
+    }
+
+    foreach ( $items as $item ) {
+        if ( empty( $item->url ) ) {
+            continue;
+        }
+
+        $path = wp_parse_url( $item->url, PHP_URL_PATH );
+        if ( ! is_string( $path ) ) {
+            continue;
+        }
+
+        $item_slug = trim( basename( untrailingslashit( $path ) ), '/' );
+        if ( $item_slug === $login_slug ) {
+            $item->url   = zb_get_login_logout_url();
+            $item->title = 'Log ud';
+        }
+    }
+
+    return $items;
+}
+
 function zb_redirect_cart_like_booking_links() {
     if ( is_admin() || empty( $_GET['p_id'] ) ) {
         return;

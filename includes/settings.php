@@ -126,6 +126,16 @@ function zb_get_login_url( $args = [] ) {
     return zb_get_best_page_url( 'zb_auth', 'login_slug', $args );
 }
 
+function zb_get_login_logout_url( $args = [] ) {
+    $url = zb_get_login_url( $args );
+
+    if ( is_user_logged_in() ) {
+        $url = add_query_arg( 'zb_action', 'logout', $url );
+    }
+
+    return $url;
+}
+
 function zb_get_dashboard_url( $args = [] ) {
     return zb_get_best_page_url( 'zb_dashboard', 'dashboard_slug', $args );
 }

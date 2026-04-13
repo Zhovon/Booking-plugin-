@@ -83,16 +83,22 @@ function zb_render_bookings_tab() {
     $active_tab = isset( $_GET['zb_tab'] ) ? sanitize_key( $_GET['zb_tab'] ) : 'bookings';
     ?>
     <style>
-        .zb-tabs{display:flex;gap:20px;border-bottom:1px solid #e5e7eb;margin-bottom:30px}
+        .zb-dashboard-top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:18px}
+        .zb-tabs{display:flex;gap:20px;border-bottom:1px solid #e5e7eb;margin-bottom:30px;flex:1}
         .zb-tab-link{padding:12px 4px;font-size:14px;font-weight:600;color:#6b7280;border-bottom:2px solid transparent;text-decoration:none;transition:.2s}
         .zb-tab-link:hover{color:#4a7c59}
         .zb-tab-link.active{color:#4a7c59;border-bottom-color:#4a7c59}
         .zb-dashboard-card{background:#fff;border-radius:12px;padding:30px;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+        .zb-logout-link{display:inline-flex;align-items:center;justify-content:center;padding:10px 16px;border-radius:10px;background:#b91c1c;color:#fff;text-decoration:none;font-size:13px;font-weight:700;white-space:nowrap;transition:.2s}
+        .zb-logout-link:hover{background:#991b1b;color:#fff}
     </style>
-    <div class="zb-tabs">
-        <a href="<?php echo esc_url( add_query_arg( 'zb_tab', 'bookings' ) ); ?>" class="zb-tab-link <?php echo 'bookings' === $active_tab ? 'active' : ''; ?>">Bookinger</a>
-        <a href="<?php echo esc_url( add_query_arg( 'zb_tab', 'profile' ) ); ?>"  class="zb-tab-link <?php echo 'profile'  === $active_tab ? 'active' : ''; ?>">Profil</a>
-        <a href="<?php echo esc_url( add_query_arg( 'zb_tab', 'security' ) ); ?>" class="zb-tab-link <?php echo 'security' === $active_tab ? 'active' : ''; ?>">Sikkerhed</a>
+    <div class="zb-dashboard-top">
+        <div class="zb-tabs">
+            <a href="<?php echo esc_url( add_query_arg( 'zb_tab', 'bookings' ) ); ?>" class="zb-tab-link <?php echo 'bookings' === $active_tab ? 'active' : ''; ?>">Bookinger</a>
+            <a href="<?php echo esc_url( add_query_arg( 'zb_tab', 'profile' ) ); ?>"  class="zb-tab-link <?php echo 'profile'  === $active_tab ? 'active' : ''; ?>">Profil</a>
+            <a href="<?php echo esc_url( add_query_arg( 'zb_tab', 'security' ) ); ?>" class="zb-tab-link <?php echo 'security' === $active_tab ? 'active' : ''; ?>">Sikkerhed</a>
+        </div>
+        <a class="zb-logout-link" href="<?php echo esc_url( zb_get_login_logout_url() ); ?>">Log ud</a>
     </div>
     <div class="zb-dashboard-card">
         <?php

@@ -4,7 +4,18 @@ defined( 'ABSPATH' ) || exit;
 
 add_action( 'init', 'zb_handle_signup' );
 add_action( 'init', 'zb_handle_login' );
+add_action( 'init', 'zb_handle_auth_actions' );
 add_action( 'init', 'zb_handle_dashboard_updates' );
+
+function zb_handle_auth_actions() {
+    if ( ! is_user_logged_in() || empty( $_GET['zb_action'] ) || 'logout' !== sanitize_key( $_GET['zb_action'] ) ) {
+        return;
+    }
+
+    wp_logout();
+    wp_safe_redirect( zb_get_login_url() );
+    exit;
+}
 
 function zb_handle_dashboard_updates() {
     if ( ! is_user_logged_in() || ! isset( $_POST['zb_action'] ) ) return;
@@ -150,7 +161,8 @@ add_shortcode( 'zb_auth', 'zb_unified_auth_form' );
 
 function zb_unified_auth_form() {
     if ( is_user_logged_in() ) {
-        return '<p class="zb-alert">Du er allerede logget ind. <a href="' . esc_url( zb_get_booking_url() ) . '">Gå til Dashboard</a></p>';
+        wp_safe_redirect( zb_get_dashboard_url() );
+        exit;
     }
 
     $mode = ( isset($_GET['action']) && $_GET['action'] === 'signup' ) ? 'signup' : 'login';
