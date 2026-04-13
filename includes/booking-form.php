@@ -30,7 +30,46 @@ function zb_booking_form() {
     $profile_contact = $meta_contact ?: $billing_contact ?: $current_user->display_name;
     $profile_phone   = $meta_phone ?: $billing_phone;
     $profile_address = $meta_address ?: $billing_address;
-    $currency     = class_exists( 'WooCommerce' ) ? get_woocommerce_currency_symbol() : 'kr';
+    $currency     = function_exists( 'zb_get_currency_symbol' ) ? zb_get_currency_symbol() : 'kr';
+
+    $is_reschedule       = isset( $_GET['reschedule'] ) && '1' === (string) $_GET['reschedule'];
+    $editing_booking     = null;
+    $editing_booking_id  = 0;
+    $prefill_email       = $current_user->user_email;
+    $prefill_comments    = '';
+    $prefill_seller      = '';
+    $prefill_services    = '';
+    $prefill_price       = 0;
+    $prefill_minutes     = 0;
+    $prefill_booking_date = '';
+    $prefill_booking_time = '';
+
+    if ( $is_reschedule && isset( $_GET['booking_id'] ) ) {
+        $editing_booking_id = absint( $_GET['booking_id'] );
+        global $wpdb;
+        $table = $wpdb->prefix . 'zb_bookings';
+        $editing_booking = $wpdb->get_row(
+            $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d AND user_id = %d", $editing_booking_id, $user_id )
+        );
+
+        if ( ! $editing_booking ) {
+            echo '<p style="padding:20px;color:#c0392b;">Du har ikke adgang til denne booking.</p>';
+            return ob_get_clean();
+        }
+
+        $profile_company      = $editing_booking->company_name ?: $profile_company;
+        $profile_contact      = $editing_booking->contact_person ?: $profile_contact;
+        $profile_phone        = $editing_booking->phone ?: $profile_phone;
+        $profile_address      = $editing_booking->address ?: $profile_address;
+        $prefill_email        = $editing_booking->email ?: $prefill_email;
+        $prefill_comments     = (string) $editing_booking->comments;
+        $prefill_seller       = (string) $editing_booking->seller_contact;
+        $prefill_services     = (string) $editing_booking->services;
+        $prefill_price        = floatval( $editing_booking->price );
+        $prefill_minutes      = absint( $editing_booking->duration_minutes );
+        $prefill_booking_date = (string) $editing_booking->booking_date;
+        $prefill_booking_time = (string) $editing_booking->booking_time;
+    }
 
     $initial_product_id      = absint( $_GET['p_id'] ?? 0 );
     $initial_product_title   = '';
@@ -38,7 +77,12 @@ function zb_booking_form() {
     $initial_total_minutes   = 0;
     $initial_services_hidden = '';
 
-    if ( $initial_product_id && class_exists( 'WooCommerce' ) ) {
+    if ( $is_reschedule && null !== $editing_booking ) {
+        $initial_product_title   = $prefill_services;
+        $initial_product_price   = $prefill_price;
+        $initial_total_minutes   = $prefill_minutes;
+        $initial_services_hidden = $prefill_services;
+    } elseif ( $initial_product_id && class_exists( 'WooCommerce' ) ) {
         $product = wc_get_product( $initial_product_id );
         if ( $product ) {
             $initial_product_title = $product->get_name();
@@ -49,7 +93,7 @@ function zb_booking_form() {
 
     ob_start();
 
-    if ( isset( $_GET['booking_id'] ) ) {
+    if ( isset( $_GET['booking_id'] ) && ! $is_reschedule ) {
         $booking_id = absint( $_GET['booking_id'] );
         global $wpdb;
         $table   = $wpdb->prefix . 'zb_bookings';
@@ -72,8 +116,8 @@ function zb_booking_form() {
         ?>
         <div class="zb-confirm-wrap">
             <div class="zb-confirm-icon">✅</div>
-            <h2>Booking-anmodning sendt!</h2>
-            <p class="zb-confirm-sub">Vi bekræfter, at din anmodning er modtaget og behandles snarest.</p>
+            <h2><?php echo isset( $_GET['rescheduled'] ) && '1' === (string) $_GET['rescheduled'] ? 'Booking opdateret!' : 'Booking-anmodning sendt!'; ?></h2>
+            <p class="zb-confirm-sub"><?php echo isset( $_GET['rescheduled'] ) && '1' === (string) $_GET['rescheduled'] ? 'Vi har modtaget ændringerne og opdateret bookingen.' : 'Vi bekræfter, at din anmodning er modtaget og behandles snarest.'; ?></p>
             <div class="zb-details">
                 <div class="zb-row"><span>Booking ID</span><strong>#<?php echo absint( $booking->id ); ?></strong></div>
                 <div class="zb-row"><span>Firma</span><strong><?php echo esc_html( $booking->company_name ); ?></strong></div>
@@ -116,15 +160,21 @@ function zb_booking_form() {
 
     ?>
     <div class="page-header">
-        <h1>Make a Booking</h1>
+        <h1><?php echo $is_reschedule ? 'Reschedule Booking' : 'Make a Booking'; ?></h1>
         <p class="logged-in">Logged in as <strong><?php echo esc_html( $current_user->display_name ); ?></strong></p>
     </div>
 
     <form class="layout" method="post" id="zb-booking-form" novalidate autocomplete="on">
         <?php wp_nonce_field( 'zb_booking_submit', 'zb_booking_nonce' ); ?>
+        <?php if ( $is_reschedule && $editing_booking_id ) : ?>
+            <input type="hidden" name="zb_update_booking_id" value="<?php echo absint( $editing_booking_id ); ?>">
+        <?php endif; ?>
 
         <div class="form-card">
-            <h2>Make a Booking</h2>
+            <h2><?php echo $is_reschedule ? 'Update Booking Details' : 'Make a Booking'; ?></h2>
+            <?php if ( $is_reschedule ) : ?>
+                <p class="zb-time-help" style="margin-bottom:16px;">Update the booking details below, then submit to save the new date, time, and changes.</p>
+            <?php endif; ?>
             <div class="form-grid">
 
                 <div class="form-group">
@@ -147,7 +197,7 @@ function zb_booking_form() {
                     <label for="zb_email">Email</label>
                     <input id="zb_email" type="email"
                            name="email" autocomplete="email"
-                           value="<?php echo esc_attr( $current_user->user_email ); ?>"
+                           value="<?php echo esc_attr( $prefill_email ); ?>"
                            placeholder="Your Email" required>
                 </div>
 
@@ -171,6 +221,7 @@ function zb_booking_form() {
                     <label for="zb_seller">Seller's Contact Information <span class="optional">(optional)</span></label>
                     <input id="zb_seller" type="text"
                            name="seller_contact" autocomplete="off"
+                           value="<?php echo esc_attr( $prefill_seller ); ?>"
                            placeholder="Anders Holm - 451000 ...">
                 </div>
 
@@ -217,7 +268,7 @@ function zb_booking_form() {
                 <div class="form-group">
                     <label for="zb_comments">Comments <span class="optional">(Optional)</span></label>
                     <textarea id="zb_comments" name="comments"
-                              placeholder="E.g. ingen plantegning, hund i huset"></textarea>
+                              placeholder="E.g. ingen plantegning, hund i huset"><?php echo esc_textarea( $prefill_comments ); ?></textarea>
                 </div>
 
                 <div class="form-group">
@@ -225,6 +276,7 @@ function zb_booking_form() {
                     <div class="input-with-icon zb-calendar-wrap" id="zbCalendarWrap">
                         <input id="zb_date" type="text" name="booking_date"
                                data-min-date="<?php echo esc_attr( wp_date( 'Y-m-d', strtotime( '+1 day', current_time( 'timestamp' ) ) ) ); ?>"
+                               value="<?php echo esc_attr( $prefill_booking_date ); ?>"
                                placeholder="Select an available date"
                                required readonly>
                     </div>
@@ -236,7 +288,7 @@ function zb_booking_form() {
                     <label for="zb_time">Select Time <span class="zb-required">*</span></label>
                     <div class="input-with-icon">
                         <select id="zb_time" name="booking_time" required>
-                            <option value="">Select date first</option>
+                            <option value=""><?php echo $prefill_booking_time ? 'Loading time slots...' : 'Select date first'; ?></option>
                         </select>
                     </div>
                     <small class="zb-time-help">Time slots are in <?php echo esc_html( zb_get_slot_interval_minutes() ); ?>-minute intervals.</small>
@@ -246,7 +298,7 @@ function zb_booking_form() {
                 <input type="hidden" name="price"              class="zb_selected_price"    value="<?php echo esc_attr( $initial_product_price ); ?>">
                 <input type="hidden" name="total_minutes"      class="zb_total_minutes"     value="<?php echo esc_attr( $initial_total_minutes ); ?>">
                 <input type="hidden" name="active_coupon_code" class="zb_active_coupon"     value="">
-                <input type="hidden" name="coupon_price"       class="zb_coupon_price"      value="">
+                <input type="hidden" name="coupon_price"       class="zb_coupon_price"      value="<?php echo esc_attr( $editing_booking ? $editing_booking->coupon_price : '' ); ?>">
                 <input type="hidden" name="booked_by"          value="<?php echo esc_attr( $current_user->display_name ); ?>">
 
             </div>
@@ -272,7 +324,7 @@ function zb_booking_form() {
                     <div class="overview-service-item zb-svc-item" data-title="<?php echo esc_attr( $initial_product_title ); ?>">
                         <div class="check-icon"><svg viewBox="0 0 10 10" fill="none"><path d="M2 5l2.5 2.5L8 3" stroke="#4a7c59" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
                         <span class="service-name"><?php echo esc_html( $initial_product_title ); ?></span>
-                        <span class="service-meta-mini"><?php echo esc_html( number_format( $initial_product_price, 0, ',', '.' ) ); ?><?php echo esc_html( $currency ); ?> · 0 min</span>
+                        <span class="service-meta-mini"><?php echo esc_html( number_format( $initial_product_price, 0, ',', '.' ) ); ?><?php echo esc_html( $currency ); ?> · <?php echo esc_html( $initial_total_minutes ? $initial_total_minutes . ' min' : '0 min' ); ?></span>
                     </div>
                     <?php endif; ?>
                 </div>
@@ -326,6 +378,10 @@ function zb_booking_form() {
 
         var initP      = '<?php echo esc_js( $initial_product_title ); ?>';
         var initPrice  = <?php echo (float) $initial_product_price; ?>;
+        var editMode   = <?php echo $is_reschedule ? 'true' : 'false'; ?>;
+        var editBookingId = <?php echo (int) $editing_booking_id; ?>;
+        var editBookingDate = '<?php echo esc_js( $prefill_booking_date ); ?>';
+        var editBookingTime = '<?php echo esc_js( $prefill_booking_time ); ?>';
 
         document.querySelectorAll('.change_update').forEach(function (inp) {
             function sync() {
@@ -479,6 +535,9 @@ function zb_booking_form() {
             fd.append('nonce', zbSlotNonce);
             fd.append('booking_date', bookingDate);
             fd.append('duration_minutes', String(getDuration()));
+            if (editBookingId) {
+                fd.append('booking_id', String(editBookingId));
+            }
 
             fetchJsonWithTimeout(ajaxUrl, { method: 'POST', body: fd }, 12000)
                 .then(function (res) {
@@ -504,6 +563,8 @@ function zb_booking_form() {
                     timeSelect.disabled = res.data.slots.length === 0;
                     if (res.data.slots.length === 0) {
                         first.textContent = 'No available slots';
+                    } else if (editMode && editBookingTime) {
+                        timeSelect.value = editBookingTime;
                     }
                 })
                 .catch(function () {
@@ -517,6 +578,7 @@ function zb_booking_form() {
             var selected = (dateInput.value || '').trim();
             if (!selected) return;
             if (availableDates.indexOf(selected) !== -1) return;
+            if (editMode && editBookingDate && selected === editBookingDate) return;
 
             dateInput.value = '';
             if (calendar) {
@@ -584,6 +646,9 @@ function zb_booking_form() {
             fd.append('action', 'zb_get_available_dates');
             fd.append('nonce', zbSlotNonce);
             fd.append('duration_minutes', String(getDuration()));
+            if (editBookingId) {
+                fd.append('booking_id', String(editBookingId));
+            }
 
             fetchJsonWithTimeout(ajaxUrl, { method: 'POST', body: fd }, 12000)
                 .then(function (res) {
@@ -596,7 +661,11 @@ function zb_booking_form() {
                         return;
                     }
 
-                    var dates = res.data.dates;
+                    var dates = res.data.dates.slice();
+                    if (editMode && editBookingDate && dates.indexOf(editBookingDate) === -1) {
+                        dates.push(editBookingDate);
+                        dates.sort();
+                    }
 
                     if (dates.length) {
                         initCalendar(dates);
@@ -611,6 +680,11 @@ function zb_booking_form() {
                     if (dateInput.value) {
                         loadSlots();
                     } else {
+                        if (editMode && editBookingDate) {
+                            dateInput.value = editBookingDate;
+                            loadSlots();
+                            return;
+                        }
                         resetSlotSelect('Select date first');
                     }
                 })
@@ -702,6 +776,9 @@ function zb_booking_form() {
 
         if (dateInput) {
             dateInput.addEventListener('change', loadSlots);
+            if (editMode && editBookingDate) {
+                dateInput.value = editBookingDate;
+            }
         }
 
         var couponInput   = document.getElementById('zbCouponInput');
@@ -769,7 +846,7 @@ function zb_booking_form() {
                 return;
             }
             var btn = document.getElementById('zbSubmitBtn');
-            btn.disabled = true; btn.textContent = 'Processing...';
+            btn.disabled = true; btn.textContent = editMode ? 'Updating...' : 'Processing...';
         });
 
         loadAvailableDates();
@@ -830,7 +907,7 @@ function zb_apply_coupon() {
 add_action( 'wp_ajax_zb_get_available_slots', 'zb_get_available_slots' );
 add_action( 'wp_ajax_zb_get_available_dates', 'zb_get_available_dates' );
 
-function zb_collect_available_slots_for_date( $booking_date, $duration, $busy_intervals = null ) {
+function zb_collect_available_slots_for_date( $booking_date, $duration, $busy_intervals = null, $exclude_booking_id = 0 ) {
     $step     = zb_get_slot_interval_minutes();
     $duration = absint( $duration );
     if ( $duration < $step ) {
@@ -871,7 +948,7 @@ function zb_collect_available_slots_for_date( $booking_date, $duration, $busy_in
             continue;
         }
 
-        if ( function_exists( 'zb_has_booking_conflict' ) && zb_has_booking_conflict( $bounds['start_mysql'], $bounds['end_mysql'], $booking_date, $booking_time ) ) {
+        if ( function_exists( 'zb_has_booking_conflict' ) && zb_has_booking_conflict( $bounds['start_mysql'], $bounds['end_mysql'], $booking_date, $booking_time, $exclude_booking_id ) ) {
             continue;
         }
 
@@ -908,6 +985,7 @@ function zb_get_available_dates() {
     if ( $duration < zb_get_slot_interval_minutes() ) {
         $duration = zb_get_default_duration_minutes();
     }
+    $exclude_booking_id = absint( $_POST['booking_id'] ?? 0 );
 
     $today = strtotime( wp_date( 'Y-m-d' ) . ' 00:00:00' );
     $from  = strtotime( '+1 day', $today );
@@ -921,7 +999,7 @@ function zb_get_available_dates() {
     $available_dates = [];
     for ( $cursor = $from; $cursor <= $to; $cursor = strtotime( '+1 day', $cursor ) ) {
         $date  = wp_date( 'Y-m-d', $cursor );
-        $slots = zb_collect_available_slots_for_date( $date, $duration, $preloaded_busy );
+        $slots = zb_collect_available_slots_for_date( $date, $duration, $preloaded_busy, $exclude_booking_id );
         if ( ! empty( $slots ) ) {
             $available_dates[] = $date;
         }
@@ -945,7 +1023,8 @@ function zb_get_available_slots() {
     }
 
     $duration = absint( $_POST['duration_minutes'] ?? 0 );
-    $slots = zb_collect_available_slots_for_date( $booking_date, $duration );
+    $exclude_booking_id = absint( $_POST['booking_id'] ?? 0 );
+    $slots = zb_collect_available_slots_for_date( $booking_date, $duration, null, $exclude_booking_id );
 
     wp_send_json_success( [ 'slots' => $slots ] );
 }

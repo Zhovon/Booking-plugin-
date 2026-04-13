@@ -41,15 +41,15 @@ function zb_handle_reschedule_request() {
         return;
     }
 
-    $subject  = '[RE-SCHEDULING REQUEST] #' . $id . ' – ' . $booking->company_name;
-    $body     = "A customer has requested to reschedule booking #{$id}.\n\n";
-    $body    .= 'Address: ' . $booking->address . "\n";
-    $body    .= 'Current Date: ' . $booking->booking_date . ' ' . $booking->booking_time . "\n";
-    $body    .= "\nPlease contact the customer at " . $booking->email . " to arrange a new time.\n";
-    $body    .= "\nManage bookings: " . admin_url( 'admin.php?page=zb-show-bookings' );
-
-    wp_mail( get_option( 'admin_email' ), $subject, $body );
-    wp_safe_redirect( add_query_arg( 'zb_msg', 'reschedule_sent', zb_get_dashboard_url() ) );
+    wp_safe_redirect(
+        add_query_arg(
+            [
+                'booking_id' => $id,
+                'reschedule' => 1,
+            ],
+            zb_get_booking_url()
+        )
+    );
     exit;
 }
 
@@ -118,7 +118,7 @@ function zb_render_customer_bookings_table() {
     $bookings = $wpdb->get_results(
         $wpdb->prepare( "SELECT * FROM {$table} WHERE user_id = %d ORDER BY booking_date DESC", $user_id )
     );
-    $currency  = class_exists( 'WooCommerce' ) ? get_woocommerce_currency_symbol() : 'kr';
+    $currency  = function_exists( 'zb_get_currency_symbol' ) ? zb_get_currency_symbol() : 'kr';
     $st_labels = [
         'pending'  => '<span style="color:#b45309;">Afventer bekræftelse</span>',
         'accepted' => '<span style="color:#15803d;font-weight:600;">&#10003; Bekræftet</span>',
@@ -157,7 +157,7 @@ function zb_render_customer_bookings_table() {
                 echo '<a href="' . esc_url( $nonce_url ) . '" style="font-size:12px;color:#4a7c59;text-decoration:none;font-weight:600;margin-right:12px;">Anmod om ny tid</a>';
             }
             if ( 'accepted' === $normalized_status ) {
-                echo '<a href="' . esc_url( add_query_arg( 'zb_invoice', absint( $b->id ), home_url( '/' ) ) ) . '" target="_blank" style="font-size:12px;color:#4a7c59;text-decoration:none;font-weight:600;">Vis faktura</a>';
+                echo '<a href="' . esc_url( zb_get_booking_invoice_url( $b->id, $b->email ) ) . '" target="_blank" style="font-size:12px;color:#4a7c59;text-decoration:none;font-weight:600;">Vis faktura</a>';
             }
             echo '</td>';
             echo '</tr>';

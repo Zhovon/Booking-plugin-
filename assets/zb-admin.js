@@ -32,6 +32,8 @@ jQuery(document).ready(function ($) {
         $('#zb_modal_email').text(row.data('email'));
         $('#zb_modal_address').text(row.data('address'));
         $('#zb_modal_services').text(row.data('services'));
+        $('#zb_modal_booking_date').val(row.data('booking-date') || '');
+        $('#zb_modal_booking_time').val(row.data('booking-time') || '');
         $('#zb_modal_status').val(row.data('status') || 'pending');
         $('#zbModal').addClass('zb-open');
     });
@@ -46,28 +48,39 @@ jQuery(document).ready(function ($) {
     $('#zbEditForm').on('submit', function (e) {
         e.preventDefault();
         var $btn = $(this).find('[type=submit]');
+        var $row = $('tr[data-id="' + $('#zb_bid').val() + '"]');
         $btn.prop('disabled', true).text('Gemmer...');
 
         $.post(zb_ajax.ajax_url, {
             action:     'zb_update_status',
             nonce:      zb_ajax.nonce,
             booking_id: $('#zb_bid').val(),
-            status:     $('#zb_modal_status').val()
+            status:     $('#zb_modal_status').val(),
+            booking_date: $('#zb_modal_booking_date').val(),
+            booking_time: $('#zb_modal_booking_time').val(),
+            company_name: $row.data('company'),
+            contact_person: $row.data('contact'),
+            email: $row.data('email'),
+            address: $row.data('address'),
+            services: $row.data('services')
         }, function (response) {
-            $btn.prop('disabled', false).text('Gem status');
+            $btn.prop('disabled', false).text('Gem ændringer');
             if (response.success) {
-                var newStatus = response.data.status;
-                $('tr[data-id="' + $('#zb_bid').val() + '"]')
-                    .attr('data-status', newStatus)
-                    .find('.zb-status-cell')
-                    .text(newStatus);
+                var bookingId = $('#zb_bid').val();
+                $('tr[data-id="' + bookingId + '"]')
+                    .attr('data-status', $('#zb_modal_status').val())
+                    .attr('data-booking-date', $('#zb_modal_booking_date').val())
+                    .attr('data-booking-time', $('#zb_modal_booking_time').val())
+                    .find('.zb-datetime-cell').text($('#zb_modal_booking_date').val() + ' ' + $('#zb_modal_booking_time').val())
+                    .end()
+                    .find('.zb-status-cell').text($('#zb_modal_status').val());
                 $('#zbModal').removeClass('zb-open');
-                zbAdminNotify('success', 'Status opdateret', 'Bookingstatus blev gemt korrekt.');
+                zbAdminNotify('success', 'Booking opdateret', 'Dato, tid og status blev gemt korrekt.');
             } else {
                 zbAdminNotify('error', 'Opdatering mislykkedes', String(response.data || 'Ukendt fejl'));
             }
         }).fail(function () {
-            $btn.prop('disabled', false).text('Gem status');
+            $btn.prop('disabled', false).text('Gem ændringer');
             zbAdminNotify('error', 'Netvaerksfejl', 'Kunne ikke opdatere bookingstatus. Proev igen.');
         });
     });

@@ -2,7 +2,7 @@
 defined( 'ABSPATH' ) || exit;
 
 function zb_render_invoice( $booking ) {
-    $currency  = class_exists( 'WooCommerce' ) ? get_woocommerce_currency_symbol() : 'kr';
+    $currency  = function_exists( 'zb_get_currency_symbol' ) ? zb_get_currency_symbol() : 'kr';
     $site_name = get_bloginfo('name');
     ?>
     <!DOCTYPE html>

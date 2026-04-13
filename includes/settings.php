@@ -40,6 +40,15 @@ function zb_get_setting( $key ) {
     return $settings[ $key ] ?? null;
 }
 
+function zb_get_currency_symbol() {
+    $symbol = class_exists( 'WooCommerce' ) ? (string) get_woocommerce_currency_symbol() : 'kr';
+    $symbol = html_entity_decode( $symbol, ENT_QUOTES, 'UTF-8' );
+    $symbol = preg_replace( '/\x{00A0}/u', ' ', $symbol );
+    $symbol = trim( preg_replace( '/\s+/u', ' ', $symbol ) );
+
+    return '' !== $symbol ? $symbol : 'kr';
+}
+
 function zb_get_slug_url( $setting_key, $args = [] ) {
     $slug = trim( (string) zb_get_setting( $setting_key ), '/' );
     if ( '' === $slug ) {
@@ -258,4 +267,44 @@ function zb_get_license_status( $force_refresh = false ) {
 function zb_is_license_valid() {
     $status = zb_get_license_status();
     return ! empty( $status['valid'] );
+}
+
+function zb_get_booking_invoice_token( $booking_id, $email = '' ) {
+    $booking_id = absint( $booking_id );
+    $email = strtolower( trim( (string) $email ) );
+
+    return hash_hmac( 'sha256', $booking_id . '|' . $email, wp_salt( 'auth' ) );
+}
+
+function zb_validate_booking_invoice_token( $booking_id, $email, $token ) {
+    $booking_id = absint( $booking_id );
+    $email = strtolower( trim( (string) $email ) );
+    $token = trim( (string) $token );
+
+    if ( '' === $token || '' === $email ) {
+        return false;
+    }
+
+    return hash_equals( zb_get_booking_invoice_token( $booking_id, $email ), $token );
+}
+
+function zb_get_booking_invoice_url( $booking_id, $email = '' ) {
+    $url = add_query_arg( 'zb_invoice', absint( $booking_id ), home_url( '/' ) );
+
+    if ( '' !== (string) $email ) {
+        $url = add_query_arg( 'token', zb_get_booking_invoice_token( $booking_id, $email ), $url );
+    }
+
+    return $url;
+}
+
+function zb_get_booking_reschedule_url( $booking_id ) {
+    return wp_nonce_url(
+        add_query_arg( 'zb_reschedule', absint( $booking_id ), zb_get_dashboard_url() ),
+        'zb_reschedule_' . absint( $booking_id )
+    );
+}
+
+function zb_render_email_button( $url, $label, $background = '#4a7c59' ) {
+    return '<a href="' . esc_url( $url ) . '" style="display:inline-block;padding:10px 18px;margin:6px 8px 6px 0;background:' . esc_attr( $background ) . ';color:#fff;text-decoration:none;border-radius:5px;font-weight:600;">' . esc_html( $label ) . '</a>';
 }

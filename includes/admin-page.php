@@ -412,6 +412,15 @@ function zb_handle_email_booking_action() {
         ? zb_normalize_booking_status( sanitize_text_field( $_GET['status'] ?? '' ) )
         : sanitize_text_field( $_GET['status'] ?? '' );
 
+    $post_data          = wp_unslash( $_POST );
+    $new_booking_date   = sanitize_text_field( $post_data['booking_date'] ?? '' );
+    $new_booking_time   = sanitize_text_field( $post_data['booking_time'] ?? '' );
+    $new_company_name   = sanitize_text_field( $post_data['company_name'] ?? '' );
+    $new_contact_person = sanitize_text_field( $post_data['contact_person'] ?? '' );
+    $new_email          = sanitize_email( $post_data['email'] ?? '' );
+    $new_address        = sanitize_textarea_field( $post_data['address'] ?? '' );
+    $new_services       = sanitize_text_field( $post_data['services'] ?? '' );
+
     if ( ! $booking_id || ! in_array( $status, [ 'accepted', 'rejected' ], true ) ) {
         wp_die( 'Ugyldig anmodning.', 'Fejl', [ 'back_link' => true ] );
     }
@@ -427,7 +436,42 @@ function zb_handle_email_booking_action() {
     if ( ! $booking ) {
         wp_die( 'Booking ikke fundet.', 'Fejl', [ 'back_link' => true ] );
     }
-    if ( $booking->status === $status ) {
+
+    $changes     = [];
+    $rescheduled = false;
+
+    if ( '' !== $new_company_name && $new_company_name !== (string) $booking->company_name ) {
+        $changes['company_name'] = $new_company_name;
+    }
+    if ( '' !== $new_contact_person && $new_contact_person !== (string) $booking->contact_person ) {
+        $changes['contact_person'] = $new_contact_person;
+    }
+    if ( '' !== $new_email && $new_email !== (string) $booking->email ) {
+        $changes['email'] = $new_email;
+    }
+    if ( '' !== $new_address && $new_address !== (string) $booking->address ) {
+        $changes['address'] = $new_address;
+    }
+    if ( '' !== $new_services && $new_services !== (string) $booking->services ) {
+        $changes['services'] = $new_services;
+    }
+
+    if ( '' !== $new_booking_date && $new_booking_date !== (string) $booking->booking_date ) {
+        if ( ! function_exists( 'zb_is_valid_booking_date' ) || ! zb_is_valid_booking_date( $new_booking_date ) ) {
+            wp_die( 'Ugyldig dato.', 'Fejl', [ 'back_link' => true ] );
+        }
+        $changes['booking_date'] = $new_booking_date;
+        $rescheduled = true;
+    }
+    if ( '' !== $new_booking_time && $new_booking_time !== (string) $booking->booking_time ) {
+        if ( ! function_exists( 'zb_is_valid_slot_time' ) || ! zb_is_valid_slot_time( $new_booking_time ) ) {
+            wp_die( 'Ugyldigt tidspunkt.', 'Fejl', [ 'back_link' => true ] );
+        }
+        $changes['booking_time'] = $new_booking_time;
+        $rescheduled = true;
+    }
+
+    if ( $booking->status === $status && empty( $changes ) ) {
         wp_safe_redirect( add_query_arg(
             [ 'page' => 'zb-show-bookings', 'zb_notice' => 'already_set' ],
             admin_url( 'admin.php' )
@@ -435,14 +479,36 @@ function zb_handle_email_booking_action() {
         exit;
     }
 
-    $wpdb->update( $table, [ 'status' => $status ], [ 'id' => $booking_id ], [ '%s' ], [ '%d' ] );
-    zb_send_status_email( $booking, $status );
+    $previous_booking = (array) $booking;
+    $update_data      = array_merge( $changes, [ 'status' => $status ] );
 
-        if ( function_exists( 'zb_is_status_accepted' ) && zb_is_status_accepted( $status ) && function_exists( 'zb_calendar_create_events_for_booking' ) ) {
-            zb_calendar_create_events_for_booking( $booking_id, (array) $booking );
+    if ( ! empty( $changes ) ) {
+        $wpdb->update( $table, $update_data, [ 'id' => $booking_id ], array_fill( 0, count( $update_data ), '%s' ), [ '%d' ] );
+
+        if ( $rescheduled && function_exists( 'zb_calendar_delete_events_for_booking' ) ) {
+            zb_calendar_delete_events_for_booking( $previous_booking );
+        }
+    } elseif ( $booking->status !== $status ) {
+        $wpdb->update( $table, [ 'status' => $status ], [ 'id' => $booking_id ], [ '%s' ], [ '%d' ] );
     }
 
-    $notice = ( function_exists( 'zb_is_status_accepted' ) && zb_is_status_accepted( $status ) ) ? 'confirmed' : 'rejected';
+    $booking = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $booking_id ) );
+
+    if ( $rescheduled ) {
+        if ( function_exists( 'zb_is_status_accepted' ) && zb_is_status_accepted( $status ) && function_exists( 'zb_calendar_create_events_for_booking' ) ) {
+            zb_calendar_create_events_for_booking( $booking_id, (array) $booking );
+        }
+
+        if ( function_exists( 'zb_send_reschedule_emails' ) ) {
+            zb_send_reschedule_emails( $booking_id, (array) $booking, $previous_booking );
+        } else {
+            zb_send_status_email( $booking, $status );
+        }
+    } else {
+        zb_send_status_email( $booking, $status );
+    }
+
+    $notice = $rescheduled ? 'confirmed' : ( ( function_exists( 'zb_is_status_accepted' ) && zb_is_status_accepted( $status ) ) ? 'confirmed' : 'rejected' );
     wp_safe_redirect( add_query_arg(
         [ 'page' => 'zb-show-bookings', 'zb_notice' => $notice, 'booking_id' => $booking_id ],
         admin_url( 'admin.php' )
@@ -451,9 +517,8 @@ function zb_handle_email_booking_action() {
 }
 
 function zb_send_status_email( $booking, $status ) {
-    $currency  = class_exists( 'WooCommerce' ) ? get_woocommerce_currency_symbol() : 'kr';
+    $currency  = function_exists( 'zb_get_currency_symbol' ) ? zb_get_currency_symbol() : 'kr';
     $site_name = get_bloginfo( 'name' ) ?: 'homefoto';
-    $sep       = str_repeat( '═', 42 );
 
     $headers = [ 'Content-Type: text/html; charset=UTF-8' ];
 
@@ -464,9 +529,14 @@ function zb_send_status_email( $booking, $status ) {
         $content = "Hej {$booking->contact_person},<br><br>";
         $content .= "Din booking er nu bekræftet! Vi ser frem til at fotografere ejendommen.<br><br>";
         $content .= "<strong>BOOKINGDETALJER:</strong><br>";
+        $content .= "Booking ID: #" . absint( $booking->id ) . "<br>";
         $content .= "Adresse: " . esc_html( $booking->address ) . "<br>";
         $content .= "Dato: " . esc_html( $booking->booking_date ) . " " . esc_html( $booking->booking_time ) . "<br><br>";
         $content .= "Vi har vedhæftet en kalenderfil, så du nemt kan gemme aftalen.<br><br>";
+        if ( function_exists( 'zb_render_email_button' ) ) {
+            $content .= zb_render_email_button( zb_get_booking_invoice_url( $booking->id, $booking->email ), 'Se faktura', '#1d4ed8' );
+            $content .= zb_render_email_button( zb_get_booking_reschedule_url( $booking->id ), 'Anmod om ny tid', '#b45309' );
+        }
         $content .= "Betaling sker efter fotografering.";
 
         $attachments = [];
@@ -477,15 +547,31 @@ function zb_send_status_email( $booking, $status ) {
 
         wp_mail( $booking->email, $subject, zb_get_styled_html( 'Booking Bekræftet', $content ), $headers, $attachments );
 
+        $admin_subject = 'Admin: booking bekræftet – ' . $site_name;
+        $admin_content  = "Booking #" . absint( $booking->id ) . " er bekræftet.<br><br>";
+        $admin_content .= "Firma: " . esc_html( $booking->company_name ) . "<br>";
+        $admin_content .= "Adresse: " . esc_html( $booking->address ) . "<br>";
+        $admin_content .= "Dato: " . esc_html( $booking->booking_date ) . " " . esc_html( $booking->booking_time ) . "<br>";
+        if ( function_exists( 'zb_render_email_button' ) ) {
+            $admin_content .= zb_render_email_button( zb_get_booking_reschedule_url( $booking->id ), 'Anmod om ny tid', '#b45309' );
+        }
+        wp_mail( get_option( 'admin_email' ), $admin_subject, zb_get_styled_html( 'Booking Bekræftet', $admin_content ), $headers, $attachments );
+
         if ( ! empty( $attachments ) ) @unlink( $attachments[0] );
     } else {
         $subject = 'Din booking-anmodning – opdatering | ' . $site_name;
         $content = "Hej {$booking->contact_person},<br><br>";
         $content .= "Desværre kan vi ikke bekræfte din booking-anmodning for:<br>";
         $content .= "<strong>" . esc_html( $booking->address ) . "</strong><br><br>";
+        if ( function_exists( 'zb_render_email_button' ) ) {
+            $content .= zb_render_email_button( zb_get_booking_reschedule_url( $booking->id ), 'Anmod om ny tid', '#b45309' );
+        }
         $content .= "Kontakt os venligst direkte hvis du ønsker at finde en anden tid.";
 
         wp_mail( $booking->email, $subject, zb_get_styled_html( 'Opdatering på din booking', $content ), $headers );
+
+        $admin_subject = 'Admin: booking afvist – ' . $site_name;
+        wp_mail( get_option( 'admin_email' ), $admin_subject, zb_get_styled_html( 'Opdatering på din booking', $content ), $headers );
     }
 }
 
@@ -499,7 +585,7 @@ function zb_bookings_page_admin() {
 function zb_render_admin_bookings_table() {
     global $wpdb;
     $table    = $wpdb->prefix . 'zb_bookings';
-    $currency = class_exists( 'WooCommerce' ) ? get_woocommerce_currency_symbol() : 'kr';
+    $currency = function_exists( 'zb_get_currency_symbol' ) ? zb_get_currency_symbol() : 'kr';
 
     if ( isset( $_GET['zb_notice'] ) ) {
         $notices = [
@@ -543,7 +629,7 @@ function zb_render_admin_bookings_table() {
                         <td><a href="mailto:<?php echo esc_attr( $b->email ); ?>"><?php echo esc_html( $b->email ); ?></a></td>
                         <td><?php echo esc_html( $b->address ); ?></td>
                         <td><?php echo esc_html( $b->services ); ?></td>
-                        <td><?php echo esc_html( $b->booking_date . ' ' . $b->booking_time ); ?></td>
+                            <td class="zb-datetime-cell"><?php echo esc_html( $b->booking_date . ' ' . $b->booking_time ); ?></td>
                         <td>
                             <?php echo esc_html( $b->price ); ?> <?php echo esc_html( $currency ); ?>
                             <?php if ( $b->coupon_price ) : ?>
@@ -570,6 +656,14 @@ function zb_render_admin_bookings_table() {
                     <p><strong>E-mail:</strong> <span id="zb_modal_email"></span></p>
                     <p><strong>Adresse:</strong> <span id="zb_modal_address"></span></p>
                     <p><strong>Ydelser:</strong> <span id="zb_modal_services"></span></p>
+                        <p>
+                            <label for="zb_modal_booking_date" style="font-weight:600;float:none;">Dato:</label><br>
+                            <input type="date" name="booking_date" id="zb_modal_booking_date" style="width:100%;margin-top:6px;padding:8px;">
+                        </p>
+                        <p>
+                            <label for="zb_modal_booking_time" style="font-weight:600;float:none;">Tid:</label><br>
+                            <input type="time" name="booking_time" id="zb_modal_booking_time" style="width:100%;margin-top:6px;padding:8px;">
+                        </p>
                     <p>
                         <label for="zb_modal_status" style="font-weight:600;float:none;">Status:</label><br>
                         <select name="status" id="zb_modal_status" style="width:100%;margin-top:6px;padding:8px;">

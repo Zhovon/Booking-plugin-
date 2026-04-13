@@ -704,6 +704,43 @@ function zb_calendar_create_events_for_booking( $booking_id, $data ) {
     return $created;
 }
 
+function zb_calendar_delete_event_for_provider( $provider, $event_id ) {
+    $provider = strtolower( (string) $provider );
+    $event_id = trim( (string) $event_id );
+
+    if ( '' === $event_id || ! zb_calendar_is_configured( $provider ) ) {
+        return false;
+    }
+
+    if ( 'google' === $provider ) {
+        $response = zb_calendar_api_request( $provider, 'DELETE', '/calendars/primary/events/' . rawurlencode( $event_id ), [] );
+    } else {
+        $response = zb_calendar_api_request( $provider, 'DELETE', '/me/events/' . rawurlencode( $event_id ), [] );
+    }
+
+    if ( is_wp_error( $response ) ) {
+        error_log( 'Zbooking calendar delete failed for ' . $provider . ': ' . $response->get_error_message() );
+        return false;
+    }
+
+    return true;
+}
+
+function zb_calendar_delete_events_for_booking( $booking ) {
+    $booking = is_array( $booking ) ? $booking : (array) $booking;
+    $deleted = [];
+
+    if ( ! empty( $booking['google_event_id'] ) ) {
+        $deleted['google'] = zb_calendar_delete_event_for_provider( 'google', (string) $booking['google_event_id'] );
+    }
+
+    if ( ! empty( $booking['outlook_event_id'] ) ) {
+        $deleted['outlook'] = zb_calendar_delete_event_for_provider( 'outlook', (string) $booking['outlook_event_id'] );
+    }
+
+    return $deleted;
+}
+
 function zb_outlook_is_enabled() {
     return zb_calendar_is_enabled( 'outlook' );
 }

@@ -245,16 +245,19 @@ add_action( 'before_woocommerce_init', function () {
 
 // Secure Invoice Routing
 add_action( 'init', function() {
-    if ( ! isset( $_GET['zb_invoice'] ) || ! is_user_logged_in() ) return;
+    if ( ! isset( $_GET['zb_invoice'] ) ) return;
     
     $booking_id = absint( $_GET['zb_invoice'] );
+    $provided_token = sanitize_text_field( $_GET['token'] ?? '' );
     global $wpdb;
     $booking = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}zb_bookings WHERE id = %d", $booking_id ) );
 
     if ( ! $booking ) wp_die('Booking ikke fundet.');
     
-    // Authorization: Admin or the owner can view
-    if ( ! current_user_can('manage_options') && absint($booking->user_id) !== get_current_user_id() ) {
+    $has_token_access = function_exists( 'zb_validate_booking_invoice_token' ) && zb_validate_booking_invoice_token( $booking_id, $booking->email, $provided_token );
+
+    // Authorization: Admin, the owner, or a signed email token can view.
+    if ( ! current_user_can( 'manage_options' ) && absint( $booking->user_id ) !== get_current_user_id() && ! $has_token_access ) {
         wp_die('Ingen adgang til denne faktura.');
     }
 
