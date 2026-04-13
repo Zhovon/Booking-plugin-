@@ -146,6 +146,9 @@ function zb_render_settings_page() {
                     <th scope="row"><label for="license_token">License token</label></th>
                     <td>
                         <input id="license_token" name="license_token" type="text" value="<?php echo esc_attr( $settings['license_token'] ?? '' ); ?>" class="regular-text" autocomplete="off">
+                        <p style="margin-top:8px;">
+                            <a href="https://zhovon.com/zb-token" target="_blank" rel="noopener noreferrer" class="button button-primary">Get License Token</a>
+                        </p>
                     </td>
                 </tr>
                 <tr>
