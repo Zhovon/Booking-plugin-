@@ -155,14 +155,14 @@ function zb_render_settings_page() {
                     <th scope="row"><label for="license_secret_key">Secret key</label></th>
                     <td>
                         <input id="license_secret_key" name="license_secret_key" type="text" value="<?php echo esc_attr( $settings['license_secret_key'] ?? 'aspirine' ); ?>" class="regular-text" autocomplete="off">
-                        <p class="description">Shared key used between this plugin and zhovon.com for license verification.</p>
+                        <p class="description">Shared key used between this plugin and zhovon.com for license verification. Default: aspirine.</p>
                     </td>
                 </tr>
                 <tr>
                     <th scope="row"><label for="license_verify_url">Verify API URL</label></th>
                     <td>
                         <input id="license_verify_url" name="license_verify_url" type="url" value="<?php echo esc_attr( $settings['license_verify_url'] ?? '' ); ?>" class="regular-text">
-                        <p class="description">Example: https://zhovon.com/api/zbooking/license/verify</p>
+                        <p class="description">Example: https://zhovon.com/api/internal/zbooking/license/verify</p>
                     </td>
                 </tr>
             </table>

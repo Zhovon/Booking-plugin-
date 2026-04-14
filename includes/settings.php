@@ -22,7 +22,7 @@ function zb_get_settings_defaults() {
         'google_client_secret'  => '',
         'license_token'         => '',
         'license_secret_key'    => 'aspirine',
-        'license_verify_url'    => 'https://zhovon.com/api/zbooking/license/verify',
+        'license_verify_url'    => 'https://zhovon.com/api/internal/zbooking/license/verify',
     ];
 }
 
@@ -227,6 +227,7 @@ function zb_get_license_status( $force_refresh = false ) {
                 [
                     'token'      => $token,
                     'secret_key' => $secret ?: 'aspirine',
+                    'secret'     => $secret ?: 'aspirine',
                     'domain'     => home_url(),
                     'plugin'     => 'zbooking',
                     'plugin_ver' => defined( 'ZB_VERSION' ) ? ZB_VERSION : '',
@@ -249,18 +250,50 @@ function zb_get_license_status( $force_refresh = false ) {
     $body = wp_remote_retrieve_body( $response );
     $json = json_decode( $body, true );
 
-    if ( $code < 200 || $code >= 300 || ! is_array( $json ) ) {
-        $status = [
-            'valid'   => false,
-            'message' => 'License server rejected the request.',
-            'mode'    => 'demo',
-        ];
-        set_transient( $cache_key, $status, HOUR_IN_SECONDS );
-        return $status;
+    $has_json = is_array( $json );
+    $reason   = $has_json && isset( $json['reason'] ) ? sanitize_key( (string) $json['reason'] ) : '';
+    $message  = $has_json && isset( $json['message'] ) ? (string) $json['message'] : '';
+    $is_valid = $has_json && ! empty( $json['valid'] ) && $code >= 200 && $code < 300;
+
+    if ( ! $has_json ) {
+        $message = 'License server returned an invalid JSON response (HTTP ' . $code . ').';
     }
 
-    $is_valid = ! empty( $json['valid'] );
-    $message  = isset( $json['message'] ) ? (string) $json['message'] : ( $is_valid ? 'License active.' : 'License not valid.' );
+    if ( '' === $message ) {
+        if ( $is_valid ) {
+            $message = 'License active.';
+        } else {
+            switch ( $reason ) {
+                case 'bad_secret':
+                    $message = 'Secret key mismatch. Ensure plugin Secret key matches ZBOOKING_SHARED_SECRET on zhovon.com.';
+                    break;
+                case 'missing_fields':
+                    $message = 'License request missing required fields.';
+                    break;
+                case 'not_found':
+                case 'invalid_token':
+                    $message = 'License token was not found.';
+                    break;
+                case 'revoked':
+                case 'inactive':
+                    $message = 'License is not active.';
+                    break;
+                case 'expired':
+                    $message = 'License has expired.';
+                    break;
+                case 'domain_limit':
+                    $message = 'License domain limit reached.';
+                    break;
+                default:
+                    $message = 'License not valid (HTTP ' . $code . ').';
+                    break;
+            }
+        }
+    }
+
+    if ( ! $is_valid && '' !== $reason && false === strpos( strtolower( $message ), $reason ) ) {
+        $message .= ' Reason: ' . $reason . '.';
+    }
 
     $status = [
         'valid'      => $is_valid,
